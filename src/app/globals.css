@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-plus-jakarta);
+  --color-primary: #14b8a6;
+  --color-primary-dark: #0d9488;
+  --color-page-bg: #f0fdfb;
+  --color-sidebar-bg: #f0fdfa;
+}
+
+/* ─── Base ──────────────────────────────────────────────────── */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #f0fdfb;
+  color: #134e4a;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #99f6e4;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #5eead4;
+}
+
+/* ─── Keyframe Animations ───────────────────────────────────── */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.6; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+@keyframes gradient-x {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Animation Utilities ───────────────────────────────────── */
+
+.animate-fade-in       { animation: fade-in 0.4s ease-out both; }
+.animate-slide-up      { animation: slide-up 0.5s ease-out both; }
+.animate-slide-down    { animation: slide-down 0.35s ease-out both; }
+.animate-slide-in-right{ animation: slide-in-right 0.4s ease-out both; }
+.animate-scale-in      { animation: scale-in 0.3s ease-out both; }
+.animate-shimmer       { animation: shimmer 2s linear infinite; background-size: 200% 100%; }
+.animate-pulse-soft    { animation: pulse-soft 2s ease-in-out infinite; }
+.animate-float         { animation: float 3s ease-in-out infinite; }
+.animate-gradient-x    { animation: gradient-x 6s ease infinite; background-size: 200% 200%; }
+.animate-spin-slow     { animation: spin-slow 3s linear infinite; }
+
+/* Stagger delays */
+.delay-75  { animation-delay: 75ms; }
+.delay-100 { animation-delay: 100ms; }
+.delay-150 { animation-delay: 150ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+
+/* ─── Glass Morphism ────────────────────────────────────────── */
+
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.glass-teal {
+  background: rgba(240, 253, 250, 0.8);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(204, 251, 241, 0.6);
+}
+
+/* ─── Premium Shadows ───────────────────────────────────────── */
+
+.shadow-teal-sm {
+  box-shadow: 0 1px 3px 0 rgba(20, 184, 166, 0.06),
+              0 1px 2px -1px rgba(20, 184, 166, 0.06);
+}
+.shadow-teal {
+  box-shadow: 0 4px 6px -1px rgba(20, 184, 166, 0.08),
+              0 2px 4px -2px rgba(20, 184, 166, 0.06);
+}
+.shadow-teal-md {
+  box-shadow: 0 10px 15px -3px rgba(20, 184, 166, 0.08),
+              0 4px 6px -4px rgba(20, 184, 166, 0.05);
+}
+.shadow-teal-lg {
+  box-shadow: 0 20px 25px -5px rgba(20, 184, 166, 0.1),
+              0 8px 10px -6px rgba(20, 184, 166, 0.06);
+}
+
+/* ─── Gradient Text ─────────────────────────────────────────── */
+
+.text-gradient-teal {
+  background: linear-gradient(135deg, #14b8a6 0%, #0d9488 50%, #134e4a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Focus Visible ─────────────────────────────────────────── */
+
+*:focus-visible {
+  outline: 2px solid #14b8a6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
