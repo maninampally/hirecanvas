@@ -58,7 +58,7 @@
 ### Database + Auth + Storage + Realtime
 | Service | Technology | Purpose |
 |---------|-----------|---------|
-| Database | **Supabase PostgreSQL** | 24 migrations, RLS on all tables |
+| Database | **Supabase PostgreSQL** | 29 migrations, RLS on all tables |
 | Auth | **Supabase Auth** | Email/password, Google OAuth, MFA, sessions |
 | Storage | **Supabase Storage** | Resume uploads (PDFs), versioned buckets |
 | Realtime | **Supabase Realtime** | Live sync status, notifications |
@@ -366,7 +366,7 @@ hirecanvas/
 │   ├── stores/                             # authStore.ts, uiStore.ts, filterStore.ts
 │   ├── hooks/                              # useJobs, useContacts, useSyncStatus, etc.
 │   └── actions/                            # Server actions for all entities
-├── supabase/migrations/                    # 24 migrations (001–024)
+├── supabase/migrations/                    # 29 migrations (001–029)
 ├── docker/                                 # Dockerfile, docker-compose.yml
 ├── nginx/hirecanvas.conf
 ├── .github/workflows/deploy.yml
@@ -375,8 +375,7 @@ hirecanvas/
 ├── tsconfig.json
 ├── package.json
 ├── PROJECT_STATE.md                        # ← This file (SSOT)
-├── IMPLEMENTATION_GAPS.md                  # Prioritized backlog
-├── DEPLOYMENT.md                           # Production deployment guide
+├── IMPLEMENTATION_GAPS.md                  # Shipped vs optional follow-ups
 └── README.md                               # Developer onboarding
 ```
 
@@ -385,7 +384,7 @@ hirecanvas/
 ## 8. Database Schema
 
 All tables use Supabase PostgreSQL with Row Level Security.
-24 migration files (001–024) in `supabase/migrations/`.
+29 migration files (001–029) in `supabase/migrations/`.
 
 ### Core Tables
 
@@ -751,19 +750,19 @@ NODE_ENV=production
 
 ## 14. Current State — Verified Implementation Reality
 
-- **Last worked on:** Complete UI overhaul — design system + all pages redesigned
-- **Current state:** Premium UI complete, core CRUD working, integrations in progress
-- **Version:** 0.5.0
+- **Last worked on:** Full code review fixes — security, validation, SSR, infrastructure
+- **Current state:** Production-hardened, all P0 issues resolved, Stripe integration pending
+- **Version:** 0.6.0
 
 ### What's Implemented and Working
 1. ✅ Premium design system (10 animations, 4 shadow levels, glassmorphism, gradient text)
-2. ✅ 8 UI components (Button, Card, Input, Select, Checkbox, Badge, EmptyState, PageHeader)
+2. ✅ 13 UI components (Button, Card, Input, Select, Checkbox, Badge, EmptyState, PageHeader, Label, StatusBadge, ConfirmDialog, TableSkeleton, TierGate)
 3. ✅ Collapsible sidebar with SVG icons, branded HireCanvas logo, teal gradient
 4. ✅ Clean topbar with search bar, notification bell, animated user dropdown
-5. ✅ Premium landing page (animated hero, dashboard mockup, pricing, CTA)
+5. ✅ **SSR landing page** (server-rendered, SEO-ready, auth redirect)
 6. ✅ Split-panel auth pages (login + register) with branding, Google OAuth button, password strength
 7. ✅ Dashboard with greeting, animated KPI cards, chart, AI feed, module grid
-8. ✅ Jobs, Contacts, Outreach, Reminders, Templates CRUD (server actions + UI)
+8. ✅ Jobs, Contacts, Outreach, Reminders, Templates CRUD (server actions + **Zod validation**)
 9. ✅ Interview Prep with persistent progress tracking
 10. ✅ Resume Manager with Supabase Storage
 11. ✅ Gmail OAuth connect/callback routes + encrypted token storage
@@ -773,23 +772,22 @@ NODE_ENV=production
 15. ✅ TierGate + UpgradeModal + CommandPalette (⌘K)
 16. ✅ Legal pages (terms + privacy)
 17. ✅ Health endpoint, deployment docs
-18. ✅ 24 database migrations with RLS
+18. ✅ 29 database migrations with RLS (including **auto-create app_users trigger**)
+19. ✅ **Plus Jakarta Sans loaded via next/font** (was missing)
+20. ✅ **Production Dockerfile** (multi-stage, non-root user)
+21. ✅ **Atomic rate limiting** (Lua script, no TOCTOU race)
+22. ✅ **Sanitized search inputs** across all server actions
+23. ✅ **Centralized types** for all entities (jobs, contacts, outreach, reminders, templates)
+24. ✅ **Shared utility helpers** (isMissingRelationError, sanitizeSearchInput)
+25. ✅ AI LLM Router with failover chain + PII sanitizer + cover letter + interview coach
 
 ### What's Not Implemented (Priority Order)
-1. 🔴 **AI provider router** — LLM failover (Gemini → Claude → OpenAI), PII sanitizer, cover letter, coaching
-2. 🔴 **Stripe billing** — checkout, portal, webhooks, subscription lifecycle (deferred by product decision)
-3. 🟡 **ATS resume checker** — analyze resume against job descriptions
-4. 🟡 **Follow-up nudge engine** — 7/14/21d auto-reminders + AI email drafts
-5. 🟡 **Settings hardening** — account update, password reset, MFA wiring, session management
-6. 🟡 **Job detail drawer** — side panel for viewing full job details + status timeline
-7. 🟢 **CSV import/export** — bulk data management
-8. 🟢 **Template enhancements** — placeholder insertion, copy-to-clipboard
-9. 🟢 **React Query adoption** — replace direct fetches with proper server state management
-10. 🟢 **Mobile responsive pass** — complete mobile optimization
-11. 🟢 **SEO optimization** — meta tags, OG images, sitemap
+1. 🔴 **Stripe billing** — checkout, portal, webhooks, subscription lifecycle (blocked by product decision)
+2. 🟡 **Full mobile responsive pass** — complete mobile optimization
+3. 🟢 **Automated test suite** — integration + e2e tests
 
 ### Next Step
-Execute the priority order above, starting with AI provider router or whichever the product team decides to unblock next.
+Deploy to production once Stripe billing is unblocked.
 
 ---
 
@@ -806,8 +804,9 @@ Execute the priority order above, starting with AI provider router or whichever 
 | 2026-04-17 | Implemented storage-backed Resume Manager (upload/list/default/download/delete) and added migration 023 for resume/storage policies |
 | 2026-04-17 | Added TierGate, UpgradeModal, and CommandPalette; wired topbar sync gating for free-tier users |
 | 2026-04-17 | Implemented admin user management and tier-config APIs/UI with migration 024 |
-| 2026-04-17 | Documentation cleanup: deleted 6 stale files, rewrote README.md + DEPLOYMENT.md, created utils.ts + constants.ts |
+| 2026-04-17 | Documentation cleanup: deleted 6 stale files, rewrote README.md, created utils.ts + constants.ts |
 | 2026-04-17 | **Complete UI overhaul** — 17 files across 7 layers: design system (globals.css), 8 UI components, sidebar/topbar redesign (SVG icons, collapsible), landing page (animated hero, pricing), auth pages (split-panel), dashboard (greeting, modules), feature pages (PageHeader, Select, Badge, Checkbox). Version bumped to 0.5.0. |
+| 2026-04-20 | **Full code review fixes** — Migration 029 (app_users auto-creation trigger), Plus Jakarta Sans via next/font, SSR landing page (removed mock data), removed duplicate session tracking from login, production Dockerfile (multi-stage), docker-compose health checks, Zod schemas for contacts/outreach/reminders/templates, sanitized search inputs, atomic rate limiting (Lua), centralized types and shared helpers, fixed dead isLoading state. Version bumped to 0.6.0. |
 
 ---
 

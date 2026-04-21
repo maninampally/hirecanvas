@@ -21,6 +21,7 @@ A production-grade SaaS application for tracking job applications, syncing Gmail
 | Forms | react-hook-form + Zod | Latest |
 | Charts | Recharts | 3.x |
 | Queue | BullMQ + ioredis | 5.x |
+| Optional NLP Service | FastAPI (Python) | 0.116.x |
 | Icons | react-icons | 5.x |
 | Font | Plus Jakarta Sans | Google Fonts |
 
@@ -64,9 +65,9 @@ A production-grade SaaS application for tracking job applications, syncing Gmail
    supabase/migrations/001_app_users.sql
    supabase/migrations/002_user_plans.sql
    ...
-   supabase/migrations/024_tier_config.sql
+   supabase/migrations/025_notification_preferences_and_timeline_confidence.sql
    ```
-   There are **24 migration files** numbered 001–024. Run them sequentially.
+   There are **25 migration files** numbered 001–025. Run them sequentially.
 
 5. **Start development server**
    ```bash
@@ -79,6 +80,18 @@ A production-grade SaaS application for tracking job applications, syncing Gmail
 ```bash
 docker compose up
 ```
+
+### Optional Python NLP Service
+
+For faster ATS keyword extraction, you can run an optional Python microservice and let the app call it with timeout-based fallback.
+
+Set:
+
+```env
+PYTHON_NLP_SERVICE_URL=http://localhost:8001
+```
+
+If this variable is unset or the service is unavailable, HireCanvas automatically uses the built-in TypeScript keyword logic.
 
 ---
 
@@ -123,11 +136,10 @@ hirecanvas/
 │   ├── hooks/                        # useSyncStatus
 │   ├── stores/                       # Zustand: authStore
 │   └── types/                        # Shared TypeScript types
-├── supabase/migrations/              # 24 SQL migration files (001–024)
+├── supabase/migrations/              # 25 SQL migration files (001–025)
 ├── nginx/hirecanvas.conf             # Nginx reverse proxy config
 ├── docker-compose.yml                # Docker dev setup
-├── Dockerfile                        # Container image
-└── DEPLOYMENT.md                     # Production deployment guide
+└── Dockerfile                        # Container image
 ```
 
 ---
@@ -141,6 +153,8 @@ npm run start            # Start production server
 npm run lint             # Run ESLint
 npm run worker:sync      # Start Gmail sync worker (BullMQ)
 npm run worker:extract   # Start AI extraction worker (BullMQ)
+npm run worker:nudge     # Start follow-up nudge worker (BullMQ)
+npm run worker:digest    # Start daily digest worker (BullMQ)
 ```
 
 ---
@@ -163,13 +177,12 @@ npm run worker:extract   # Start AI extraction worker (BullMQ)
 - **Landing Page** — Hero, features, pricing sections
 - **Legal** — Terms of Service, Privacy Policy
 - **Gmail OAuth** — Connect/callback routes with encrypted token storage
-- **Queue Infrastructure** — BullMQ sync & extraction workers bootstrapped
+- **Queue Infrastructure** — BullMQ sync, extraction, nudge, and digest workers bootstrapped
 - **Realtime** — Sync status subscription hook
-- **Database** — 24 migrations, RLS on all tables
+- **Database** — 25 migrations, RLS on all tables
 - **Deployment Config** — Docker, Nginx, CI/CD template
 
 ### ⏳ Not Yet Implemented
-- AI provider runtime (Gemini/Claude/OpenAI failover)
 - Stripe checkout/portal/webhook integration
 - ATS resume checker
 - Full settings wiring (MFA, session management, Gmail connection status)
@@ -185,8 +198,7 @@ See [IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md) for the prioritized backlog
 | File | Purpose |
 |------|---------|
 | **[PROJECT_STATE.md](PROJECT_STATE.md)** | Architecture blueprint & single source of truth |
-| **[IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md)** | Prioritized backlog of remaining work |
-| **[DEPLOYMENT.md](DEPLOYMENT.md)** | EC2 production deployment guide |
+| **[IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md)** | Notes on shipped vs optional follow-ups |
 
 ---
 
