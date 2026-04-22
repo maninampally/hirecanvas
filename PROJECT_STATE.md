@@ -750,8 +750,8 @@ NODE_ENV=production
 
 ## 14. Current State — Verified Implementation Reality
 
-- **Last worked on:** Full code review fixes — security, validation, SSR, infrastructure
-- **Current state:** Production-hardened, all P0 issues resolved, Stripe integration pending
+- **Last worked on:** Billing + revenue integration, docs sync, and e2e coverage hardening
+- **Current state:** Production-hardened core platform with Stripe wired; infra validation still pending
 - **Version:** 0.6.0
 
 ### What's Implemented and Working
@@ -772,7 +772,7 @@ NODE_ENV=production
 15. ✅ TierGate + UpgradeModal + CommandPalette (⌘K)
 16. ✅ Legal pages (terms + privacy)
 17. ✅ Health endpoint, deployment docs
-18. ✅ 29 database migrations with RLS (including **auto-create app_users trigger**)
+18. ✅ 36 database migrations with RLS (including billing ledger and auto-create app_users trigger)
 19. ✅ **Plus Jakarta Sans loaded via next/font** (was missing)
 20. ✅ **Production Dockerfile** (multi-stage, non-root user)
 21. ✅ **Atomic rate limiting** (Lua script, no TOCTOU race)
@@ -780,14 +780,17 @@ NODE_ENV=production
 23. ✅ **Centralized types** for all entities (jobs, contacts, outreach, reminders, templates)
 24. ✅ **Shared utility helpers** (isMissingRelationError, sanitizeSearchInput)
 25. ✅ AI LLM Router with failover chain + PII sanitizer + cover letter + interview coach
+26. ✅ Stripe billing integration (checkout, portal, signed webhook processing)
+27. ✅ Billing page wired to live plan/invoice data from Supabase
+28. ✅ Admin revenue snapshot (MRR, churn, LTV, net margin)
 
 ### What's Not Implemented (Priority Order)
-1. 🔴 **Stripe billing** — checkout, portal, webhooks, subscription lifecycle (blocked by product decision)
+1. 🔴 **Production deployment validation** — live EC2 smoke test + CloudWatch alarm verification
 2. 🟡 **Full mobile responsive pass** — complete mobile optimization
-3. 🟢 **Automated test suite** — integration + e2e tests
+3. 🟢 **Auth-gated e2e in CI** — run critical auth flows using CI credentials
 
 ### Next Step
-Deploy to production once Stripe billing is unblocked.
+Run live deployment validation on EC2 and close the remaining launch checklist.
 
 ---
 
@@ -807,6 +810,7 @@ Deploy to production once Stripe billing is unblocked.
 | 2026-04-17 | Documentation cleanup: deleted 6 stale files, rewrote README.md, created utils.ts + constants.ts |
 | 2026-04-17 | **Complete UI overhaul** — 17 files across 7 layers: design system (globals.css), 8 UI components, sidebar/topbar redesign (SVG icons, collapsible), landing page (animated hero, pricing), auth pages (split-panel), dashboard (greeting, modules), feature pages (PageHeader, Select, Badge, Checkbox). Version bumped to 0.5.0. |
 | 2026-04-20 | **Full code review fixes** — Migration 029 (app_users auto-creation trigger), Plus Jakarta Sans via next/font, SSR landing page (removed mock data), removed duplicate session tracking from login, production Dockerfile (multi-stage), docker-compose health checks, Zod schemas for contacts/outreach/reminders/templates, sanitized search inputs, atomic rate limiting (Lua), centralized types and shared helpers, fixed dead isLoading state. Version bumped to 0.6.0. |
+| 2026-04-21 | **Billing + revenue shipped** — Installed Stripe SDK, added checkout/portal/webhook routes, Stripe helpers, billing ledger migration 036, live billing UI from Supabase, and admin revenue metrics (MRR/churn/LTV/net margin). |
 
 ---
 

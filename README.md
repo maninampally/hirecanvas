@@ -2,8 +2,8 @@
 
 A production-grade SaaS application for tracking job applications, syncing Gmail emails with AI extraction, and managing your entire job search pipeline.
 
-**Status:** In Progress — Core CRUD implemented, integrations pending  
-**Version:** 0.3.0
+**Status:** Active development — core platform and billing flows implemented  
+**Version:** 0.6.0
 
 ---
 
@@ -65,9 +65,9 @@ A production-grade SaaS application for tracking job applications, syncing Gmail
    supabase/migrations/001_app_users.sql
    supabase/migrations/002_user_plans.sql
    ...
-   supabase/migrations/025_notification_preferences_and_timeline_confidence.sql
+   supabase/migrations/036_billing_events.sql
    ```
-   There are **25 migration files** numbered 001–025. Run them sequentially.
+   There are **36 migration files** numbered 001–036. Run them sequentially.
 
 5. **Start development server**
    ```bash
@@ -136,7 +136,7 @@ hirecanvas/
 │   ├── hooks/                        # useSyncStatus
 │   ├── stores/                       # Zustand: authStore
 │   └── types/                        # Shared TypeScript types
-├── supabase/migrations/              # 25 SQL migration files (001–025)
+├── supabase/migrations/              # 36 SQL migration files (001–036)
 ├── nginx/hirecanvas.conf             # Nginx reverse proxy config
 ├── docker-compose.yml                # Docker dev setup
 └── Dockerfile                        # Container image
@@ -173,21 +173,20 @@ npm run worker:digest    # Start daily digest worker (BullMQ)
 - **Resume Manager** — Supabase Storage upload/download/default/delete
 - **Settings** — 4-tab layout (Account, Security, Notifications, Connections)
 - **Admin** — Overview metrics, user management, tier config
-- **Billing** — Static plan card (Stripe not wired yet)
+- **Billing** — Live plan + invoice history with Stripe checkout and portal
 - **Landing Page** — Hero, features, pricing sections
 - **Legal** — Terms of Service, Privacy Policy
 - **Gmail OAuth** — Connect/callback routes with encrypted token storage
+- **Stripe Billing** — Checkout session API, customer portal API, signed webhook handling
 - **Queue Infrastructure** — BullMQ sync, extraction, nudge, and digest workers bootstrapped
 - **Realtime** — Sync status subscription hook
-- **Database** — 25 migrations, RLS on all tables
+- **Database** — 36 migrations, RLS on all tables
 - **Deployment Config** — Docker, Nginx, CI/CD template
 
 ### ⏳ Not Yet Implemented
-- Stripe checkout/portal/webhook integration
-- ATS resume checker
-- Full settings wiring (MFA, session management, Gmail connection status)
-- CSV import/export for jobs
-- Automated test suite
+- Production infra validation (live EC2 smoke test + CloudWatch alarm trigger verification)
+- Full mobile responsiveness pass across core views
+- Auth-gated e2e execution in CI (`E2E_USER_EMAIL` / `E2E_USER_PASSWORD`)
 
 See [IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md) for the prioritized backlog.
 
