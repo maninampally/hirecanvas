@@ -25,7 +25,8 @@ function parseGoogleIdTokenClaims(idToken?: string | null): GoogleIdTokenClaims 
     if (!payload) return null
 
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const padding = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4))
+    const remainder = base64.length % 4
+    const padding = remainder === 0 ? '' : '='.repeat(4 - remainder)
     return JSON.parse(Buffer.from(`${base64}${padding}`, 'base64').toString('utf8')) as GoogleIdTokenClaims
   } catch {
     return null
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
       (idTokenClaims?.sub ? `sub:${idTokenClaims.sub}` : null)
 
     if (!providerEmail) {
-      throw new Error('Unable to determine Google account identity. Please reconnect Gmail.')
+      throw new Error('Failed to retrieve Google account identity from ID token. Please try again.')
     }
     const { error } = await supabase.from('oauth_tokens').upsert(
       {
