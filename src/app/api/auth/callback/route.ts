@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
       : null
 
     const idTokenClaims = parseGoogleIdTokenClaims(tokens.id_token)
+    // Prefer stable email when present; otherwise fallback to prefixed `sub` to avoid collisions.
     const providerEmail =
       idTokenClaims?.email?.trim().toLowerCase() ||
       (idTokenClaims?.sub ? `${PROVIDER_SUB_PREFIX}${idTokenClaims.sub}` : null)
