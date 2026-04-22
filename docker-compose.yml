@@ -1,21 +1,45 @@
+# 1. Define shared environment variables
+x-environment: &env_vars
+  NODE_ENV: production
+  NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+  SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+  REDIS_URL: redis://redis:6379
+  NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+  GEMINI_API_KEY: ${GEMINI_API_KEY}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  AWS_SES_REGION: ${AWS_SES_REGION}
+  AWS_SES_ACCESS_KEY_ID: ${AWS_SES_ACCESS_KEY_ID}
+  AWS_SES_SECRET_ACCESS_KEY: ${AWS_SES_SECRET_ACCESS_KEY}
+  SES_FROM_EMAIL: ${SES_FROM_EMAIL}
+  SES_DRY_RUN: ${SES_DRY_RUN}
+
+# 2. Define shared worker configuration
+x-worker-base: &worker_base
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: worker-runner
+  image: hirecanvas-worker:latest
+  environment: *env_vars
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runner
+    image: hirecanvas-app:latest
     ports:
       - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - REDIS_URL=redis://redis:6379
-      - PYTHON_NLP_SERVICE_URL=http://python-nlp:8001
+    environment: *env_vars
     depends_on:
       redis:
-        condition: service_healthy
-      python-nlp:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
@@ -26,83 +50,20 @@ services:
     restart: unless-stopped
 
   worker-sync:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: ["node", "-e", "require('./src/lib/queue/workers/runSyncWorker.ts')"]
-    restart: unless-stopped
+    <<: *worker_base
+    command: ["npm", "run", "worker:sync"]
 
   worker-extract:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - REDIS_URL=redis://redis:6379
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: ["node", "-e", "require('./src/lib/queue/workers/runExtractionWorker.ts')"]
-    restart: unless-stopped
+    <<: *worker_base
+    command: ["npm", "run", "worker:extract"]
 
   worker-nudge:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - REDIS_URL=redis://redis:6379
-      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
-      - AWS_SES_REGION=${AWS_SES_REGION}
-      - AWS_SES_ACCESS_KEY_ID=${AWS_SES_ACCESS_KEY_ID}
-      - AWS_SES_SECRET_ACCESS_KEY=${AWS_SES_SECRET_ACCESS_KEY}
-      - SES_FROM_EMAIL=${SES_FROM_EMAIL}
-      - SES_DRY_RUN=${SES_DRY_RUN}
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: ["node", "-e", "require('./src/lib/queue/workers/runNudgeWorker.ts')"]
-    restart: unless-stopped
+    <<: *worker_base
+    command: ["npm", "run", "worker:nudge"]
 
   worker-digest:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - REDIS_URL=redis://redis:6379
-      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
-      - AWS_SES_REGION=${AWS_SES_REGION}
-      - AWS_SES_ACCESS_KEY_ID=${AWS_SES_ACCESS_KEY_ID}
-      - AWS_SES_SECRET_ACCESS_KEY=${AWS_SES_SECRET_ACCESS_KEY}
-      - SES_FROM_EMAIL=${SES_FROM_EMAIL}
-      - SES_DRY_RUN=${SES_DRY_RUN}
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: ["node", "-e", "require('./src/lib/queue/workers/runDigestWorker.ts')"]
-    restart: unless-stopped
+    <<: *worker_base
+    command: ["npm", "run", "worker:digest"]
 
   redis:
     image: redis:7-alpine
@@ -114,19 +75,6 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-
-  python-nlp:
-    build:
-      context: ./python-services/nlp-service
-      dockerfile: Dockerfile
-    ports:
-      - "8001:8001"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
-      interval: 10s
       timeout: 3s
       retries: 5
     restart: unless-stopped
