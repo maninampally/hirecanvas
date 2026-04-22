@@ -1,17 +1,10 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { contactSchema, type ContactFormData } from '@/lib/validations/contacts'
+import { sanitizeSearchInput, isMissingRelationError } from '@/lib/utils'
 
-export type ContactFormData = {
-  name: string
-  email?: string
-  phone?: string
-  company?: string
-  title?: string
-  relationship?: 'Recruiter' | 'Hiring Manager' | 'Employee' | 'Other'
-  linkedin_url?: string
-  notes?: string
-}
+export type { ContactFormData } from '@/lib/validations/contacts'
 
 function normalizeContactInput(data: ContactFormData) {
   return {
@@ -33,18 +26,21 @@ export async function createContact(data: ContactFormData) {
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Unauthorized')
-  if (!data.name?.trim()) throw new Error('Name is required')
+  const validated = contactSchema.parse(data)
 
   const { data: contact, error } = await supabase
     .from('contacts')
     .insert({
-      ...normalizeContactInput(data),
+      ...normalizeContactInput(validated),
       user_id: user.id,
     })
     .select('*')
     .single()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Contacts table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
   return contact
 }
 
@@ -55,12 +51,12 @@ export async function updateContact(id: string, data: ContactFormData) {
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Unauthorized')
-  if (!data.name?.trim()) throw new Error('Name is required')
+  const validated = contactSchema.parse(data)
 
   const { data: contact, error } = await supabase
     .from('contacts')
     .update({
-      ...normalizeContactInput(data),
+      ...normalizeContactInput(validated),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
@@ -68,7 +64,10 @@ export async function updateContact(id: string, data: ContactFormData) {
     .select('*')
     .single()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Contacts table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
   return contact
 }
 
@@ -86,7 +85,10 @@ export async function deleteContact(id: string) {
     .eq('id', id)
     .eq('user_id', user.id)
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Contacts table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
 }
 
 export async function getContacts(search?: string) {
@@ -104,11 +106,16 @@ export async function getContacts(search?: string) {
     .order('created_at', { ascending: false })
 
   if (search?.trim()) {
-    const value = search.trim()
-    query = query.or(`name.ilike.%${value}%,company.ilike.%${value}%,email.ilike.%${value}%`)
+    const value = sanitizeSearchInput(search)
+    if (value) {
+      query = query.or(`name.ilike.%${value}%,company.ilike.%${value}%,email.ilike.%${value}%`)
+    }
   }
 
   const { data, error } = await query
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) return []
+    throw error
+  }
   return data
 }

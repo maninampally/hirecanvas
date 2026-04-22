@@ -6,6 +6,7 @@ export type User = {
   full_name?: string
   avatar_url?: string
   tier: 'free' | 'pro' | 'elite' | 'admin'
+  onboarding_completed?: boolean
 }
 
 type AuthStore = {

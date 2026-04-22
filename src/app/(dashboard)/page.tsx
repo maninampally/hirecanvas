@@ -1,12 +1,27 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
+import {
+  getDashboardAnalytics,
+  getRecentJobs,
+  getSyncReport,
+  type DashboardAnalytics,
+  type RecentJobItem,
+  type SyncReport,
+  type SyncWindowHours,
+} from '@/actions/dashboard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ApplicationActivityChart } from '@/components/dashboard/ApplicationActivityChart'
-import { AIExtractionFeed } from '@/components/dashboard/AIExtractionFeed'
+import { SyncReportCard } from '@/components/dashboard/SyncReportCard'
+import { PipelineFunnel } from '@/components/dashboard/PipelineFunnel'
+import { ResponseRateAnalytics } from '@/components/dashboard/ResponseRateAnalytics'
+import { ActivityHeatmap } from '@/components/dashboard/ActivityHeatmap'
+import { WeeklyStrategyReport } from '@/components/dashboard/WeeklyStrategyReport'
+import { GoalTracker } from '@/components/dashboard/GoalTracker'
+import { AchievementBadges } from '@/components/dashboard/AchievementBadges'
 import { Badge } from '@/components/ui/badge'
 import { useAuthStore } from '@/stores/authStore'
 import {
@@ -18,19 +33,62 @@ import {
   MdOutlineEmail,
   MdDescription,
   MdQuiz,
+  MdArticle,
   MdSettings,
   MdAdminPanelSettings,
   MdArrowForward,
+  MdSync,
 } from 'react-icons/md'
 
 export default function DashboardPage() {
-  const router = useRouter()
   const { user } = useAuthStore()
   const [isLoading, setIsLoading] = useState(true)
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null)
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
+  const [recentJobs, setRecentJobs] = useState<RecentJobItem[]>([])
+  const [syncWindow, setSyncWindow] = useState<SyncWindowHours>(24)
+  const [syncReport, setSyncReport] = useState<SyncReport | null>(null)
+  const [syncReportError, setSyncReportError] = useState<string | null>(null)
+  const [isSyncLoading, setIsSyncLoading] = useState(true)
+  const [isTriggeringSync, setIsTriggeringSync] = useState(false)
 
   useEffect(() => {
-    setIsLoading(false)
-  }, [])
+    let active = true
+
+    async function loadAnalytics() {
+      try {
+        setAnalyticsError(null)
+        setIsSyncLoading(true)
+        const [data, jobs, report] = await Promise.all([
+          getDashboardAnalytics(),
+          getRecentJobs(6),
+          getSyncReport(syncWindow),
+        ])
+        if (active) {
+          setAnalytics(data)
+          setRecentJobs(jobs)
+          setSyncReport(report)
+          setSyncReportError(null)
+        }
+      } catch (error) {
+        if (!active) return
+        const message = error instanceof Error ? error.message : 'Failed to load analytics'
+        setAnalyticsError(message)
+        setSyncReportError(message)
+      } finally {
+        if (active) {
+          setIsLoading(false)
+          setIsSyncLoading(false)
+        }
+      }
+    }
+
+    void loadAnalytics()
+
+    return () => {
+      active = false
+    }
+  }, [syncWindow])
 
   if (isLoading) {
     return (
@@ -46,10 +104,42 @@ export default function DashboardPage() {
   }
 
   const kpis = [
-    { label: 'Total Applications', value: 124, subtext: '+12 this week', icon: MdWork, color: 'from-teal-500 to-teal-600', border: 'border-l-teal-500', iconBg: 'bg-teal-50 text-teal-600' },
-    { label: 'Active Interviews', value: 7, subtext: '+2 this week', icon: MdHandshake, color: 'from-blue-500 to-blue-600', border: 'border-l-blue-500', iconBg: 'bg-blue-50 text-blue-600' },
-    { label: 'Offers', value: 1, subtext: '+1 this week', icon: MdStarRate, color: 'from-emerald-500 to-emerald-600', border: 'border-l-emerald-500', iconBg: 'bg-emerald-50 text-emerald-600' },
-    { label: 'Rejections', value: 32, subtext: '-3 this week', icon: MdClose, color: 'from-rose-400 to-rose-500', border: 'border-l-rose-500', iconBg: 'bg-rose-50 text-rose-500' },
+    {
+      label: 'Total Applications',
+      value: analytics?.summary.totalApplications ?? 0,
+      subtext: 'Live total',
+      icon: MdWork,
+      color: 'from-teal-500 to-teal-600',
+      border: 'border-l-teal-500',
+      iconBg: 'bg-teal-50 text-teal-600',
+    },
+    {
+      label: 'Active Interviews',
+      value: analytics?.summary.activeInterviews ?? 0,
+      subtext: 'Current stage',
+      icon: MdHandshake,
+      color: 'from-blue-500 to-blue-600',
+      border: 'border-l-blue-500',
+      iconBg: 'bg-blue-50 text-blue-600',
+    },
+    {
+      label: 'Offers',
+      value: analytics?.summary.offers ?? 0,
+      subtext: 'Current stage',
+      icon: MdStarRate,
+      color: 'from-emerald-500 to-emerald-600',
+      border: 'border-l-emerald-500',
+      iconBg: 'bg-emerald-50 text-emerald-600',
+    },
+    {
+      label: 'Rejections',
+      value: analytics?.summary.rejections ?? 0,
+      subtext: 'Current stage',
+      icon: MdClose,
+      color: 'from-rose-400 to-rose-500',
+      border: 'border-l-rose-500',
+      iconBg: 'bg-rose-50 text-rose-500',
+    },
   ]
 
   const modules = [
@@ -57,27 +147,71 @@ export default function DashboardPage() {
     { title: 'Outreach', icon: MdOutlineEmail, desc: 'Track your networking efforts', href: '/outreach', color: 'bg-violet-50 text-violet-600' },
     { title: 'Resumes', icon: MdDescription, desc: 'Upload and manage documents', href: '/resumes', color: 'bg-emerald-50 text-emerald-600' },
     { title: 'Interview Prep', icon: MdQuiz, desc: 'Practice with curated Q&A', href: '/interview-prep', color: 'bg-amber-50 text-amber-600' },
+    { title: 'Templates', icon: MdArticle, desc: 'Email & LinkedIn templates', href: '/templates', color: 'bg-rose-50 text-rose-600' },
     { title: 'Settings', icon: MdSettings, desc: 'Account & preferences', href: '/settings', color: 'bg-slate-100 text-slate-600' },
-    { title: 'Admin', icon: MdAdminPanelSettings, desc: 'Platform management', href: '/admin', color: 'bg-teal-50 text-teal-600' },
+    ...(user?.tier === 'admin' ? [{ title: 'Admin', icon: MdAdminPanelSettings, desc: 'Platform management', href: '/admin', color: 'bg-teal-50 text-teal-600' }] : []),
   ]
 
-  const greeting = () => {
-    const hour = new Date().getHours()
-    if (hour < 12) return 'Good morning'
-    if (hour < 18) return 'Good afternoon'
-    return 'Good evening'
+  const formatActivityDate = (value: string) => {
+    const date = new Date(value)
+    return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
   }
+
+  const handleManualSync = async () => {
+    setIsTriggeringSync(true)
+    try {
+      const response = await fetch('/api/sync/trigger', { method: 'POST' })
+      const data = (await response.json()) as {
+        message?: string
+        error?: string
+        remaining?: number
+      }
+
+      if (!response.ok) throw new Error(data.error || 'Unable to start sync')
+
+      toast.success(
+        typeof data.remaining === 'number'
+          ? `Sync started. Remaining: ${data.remaining}`
+          : data.message || 'Sync started'
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to start sync')
+    } finally {
+      setIsTriggeringSync(false)
+    }
+  }
+
+  const hour = new Date().getHours()
+  const greeting =
+    hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const displayName = user?.full_name || user?.email?.split('@')[0] || 'there'
+  const activityChartData = (analytics?.heatmap.cells || []).map((cell) => ({
+    date: cell.date,
+    day: new Date(`${cell.date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short' }),
+    applications: cell.count,
+  }))
 
   return (
     <div className="space-y-8">
       {/* Greeting */}
-      <div className="animate-slide-up">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          {greeting()}, {user?.full_name || user?.email?.split('@')[0] || 'there'} 👋
-        </h1>
-        <p className="text-slate-500 mt-1 text-sm">
-          Here&apos;s your job search overview for today.
-        </p>
+      <div className="animate-slide-up flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            {greeting}, {displayName} 👋
+          </h1>
+          <p className="text-slate-500 mt-1 text-sm">
+            Here&apos;s your job search overview for today.
+          </p>
+        </div>
+        <Button
+          type="button"
+          onClick={handleManualSync}
+          disabled={isTriggeringSync}
+          className="inline-flex items-center gap-2 self-start"
+        >
+          <MdSync className={isTriggeringSync ? 'animate-spin-slow' : ''} />
+          {isTriggeringSync ? 'Syncing...' : 'Sync Jobs'}
+        </Button>
       </div>
 
       {/* KPI Cards */}
@@ -110,9 +244,38 @@ export default function DashboardPage() {
       {/* Charts */}
       <div className="grid lg:grid-cols-3 gap-6 animate-slide-up delay-200">
         <div className="lg:col-span-2">
-          <ApplicationActivityChart />
+          <ApplicationActivityChart data={activityChartData} />
         </div>
-        <AIExtractionFeed />
+        <SyncReportCard
+          report={syncReport}
+          windowHours={syncWindow}
+          onWindowChange={setSyncWindow}
+          isLoading={isSyncLoading}
+          error={syncReportError}
+        />
+      </div>
+
+      {analyticsError && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 animate-slide-up">
+          {analyticsError}
+        </div>
+      )}
+
+      {/* Sprint 4 Analytics */}
+      <div className="space-y-6 animate-slide-up delay-250">
+        <h2 className="text-lg font-bold text-slate-900">Analytics & Insights</h2>
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          <PipelineFunnel data={analytics?.funnel || []} />
+          <ResponseRateAnalytics data={analytics?.responseRates || []} />
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <ActivityHeatmap cells={analytics?.heatmap.cells || []} />
+          </div>
+          <WeeklyStrategyReport />
+        </div>
       </div>
 
       {/* Applications Table */}
@@ -130,31 +293,39 @@ export default function DashboardPage() {
             <thead>
               <tr className="text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
                 <th className="px-6 py-3.5 text-left">Company</th>
-                <th className="px-6 py-3.5 text-left">Role</th>
-                <th className="px-6 py-3.5 text-left">Stage</th>
+                <th className="px-6 py-3.5 text-left">Title</th>
+                <th className="px-6 py-3.5 text-left">Status</th>
                 <th className="px-6 py-3.5 text-left">Source</th>
                 <th className="px-6 py-3.5 text-left">Last Activity</th>
                 <th className="px-6 py-3.5 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {[
-                { company: 'Google', role: 'Senior Frontend Engineer', stage: 'Interview', variant: 'amber' as const, source: 'Gmail Sync', activity: '2 days ago' },
-                { company: 'Meta', role: 'Full Stack Engineer', stage: 'Applied', variant: 'blue' as const, source: 'Manual', activity: '5 days ago' },
-                { company: 'Stripe', role: 'Product Engineer', stage: 'Offer', variant: 'emerald' as const, source: 'Gmail Sync', activity: '1 day ago' },
-                { company: 'Amazon', role: 'Backend Engineer', stage: 'Rejected', variant: 'rose' as const, source: 'Manual', activity: '1 week ago' },
-              ].map((app, i) => (
-                <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 font-semibold text-slate-900 text-sm">{app.company}</td>
-                  <td className="px-6 py-4 text-slate-600 text-sm">{app.role}</td>
-                  <td className="px-6 py-4"><Badge variant={app.variant}>{app.stage}</Badge></td>
-                  <td className="px-6 py-4 text-slate-400 text-xs">{app.source}</td>
-                  <td className="px-6 py-4 text-slate-400 text-xs">{app.activity}</td>
-                  <td className="px-6 py-4 text-right">
-                    <Button variant="ghost" size="sm" className="text-teal-600 text-xs">View →</Button>
+              {recentJobs.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-slate-400">
+                    No applications yet. <Link href="/jobs" className="text-teal-600 font-medium">Add your first job →</Link>
                   </td>
                 </tr>
-              ))}
+              )}
+              {recentJobs.map((job) => {
+                const statusVariant: Record<string, 'amber' | 'blue' | 'emerald' | 'rose' | 'teal'> = {
+                  Wishlist: 'teal', Applied: 'blue', Screening: 'amber',
+                  Interview: 'amber', Offer: 'emerald', Rejected: 'rose',
+                }
+                return (
+                  <tr key={job.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 font-semibold text-slate-900 text-sm">{job.company}</td>
+                    <td className="px-6 py-4 text-slate-600 text-sm">{job.title}</td>
+                    <td className="px-6 py-4"><Badge variant={statusVariant[job.status] || 'teal'}>{job.status}</Badge></td>
+                    <td className="px-6 py-4 text-slate-400 text-xs capitalize">{job.source || 'Manual'}</td>
+                    <td className="px-6 py-4 text-slate-400 text-xs">{formatActivityDate(job.updated_at)}</td>
+                    <td className="px-6 py-4 text-right">
+                      <Link href="/jobs"><Button variant="ghost" size="sm" className="text-teal-600 text-xs">View →</Button></Link>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -185,6 +356,18 @@ export default function DashboardPage() {
           })}
         </div>
       </div>
+
+      {analytics && (
+        <div className="grid lg:grid-cols-2 gap-6 animate-slide-up delay-500">
+          <GoalTracker
+            weeklyTarget={analytics.gamification.weeklyTarget}
+            weeklyCompleted={analytics.gamification.weeklyCompleted}
+            currentStreak={analytics.gamification.currentStreak}
+            longestStreak={analytics.gamification.longestStreak}
+          />
+          <AchievementBadges achievements={analytics.gamification.achievements} />
+        </div>
+      )}
     </div>
   )
 }
