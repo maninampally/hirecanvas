@@ -15,7 +15,7 @@ WHERE t.user_id = u.id
 
 -- Ensure all legacy rows have a deterministic non-null identifier.
 UPDATE public.oauth_tokens
-SET provider_email = concat('legacy-', user_id::text)
+SET provider_email = concat('legacy-user-id:', user_id::text)
 WHERE provider_email IS NULL OR provider_email = '';
 
 -- Replace legacy uniqueness with multi-account uniqueness.

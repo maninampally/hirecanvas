@@ -95,15 +95,14 @@ export async function POST() {
     )
   }
 
-  const { data: oauthTokens, error: oauthError } = await supabase
+  const { count: oauthTokenCount, error: oauthError } = await supabase
     .from('oauth_tokens')
-    .select('id')
+    .select('id', { head: true, count: 'exact' })
     .eq('user_id', user.id)
     .eq('provider', 'google_gmail')
     .eq('is_revoked', false)
-    .limit(1)
 
-  if (oauthError || !oauthTokens || oauthTokens.length === 0) {
+  if (oauthError || !oauthTokenCount || oauthTokenCount === 0) {
     await recordAuditEvent({
       userId: user.id,
       eventType: 'sync_denied_oauth_missing',
