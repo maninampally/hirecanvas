@@ -10,7 +10,7 @@ export type EmailDirection = 'outbound' | 'inbound' | 'unknown'
 function inferStatusFromSubject(subject: string): ParsedJobSignal['inferredStatus'] {
   const value = subject.toLowerCase()
 
-  if (value.includes('regret') || value.includes('unfortunately') || value.includes('rejected')) {
+  if (value.includes('regret') || value.includes('unfortunately') || value.includes('rejected') || value.includes('withdrawn') || value.includes('no longer considering') || value.includes('decided to move forward with other') || value.includes('not moving forward')) {
     return 'Rejected'
   }
   if (value.includes('offer')) return 'Offer'

@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { FiMic, FiMicOff } from 'react-icons/fi'
+import { useSpeechToText } from '@/hooks/useSpeechToText'
 import {
   generateInterviewFeedback,
   getInterviewQuestions,
@@ -38,6 +40,49 @@ export default function InterviewPrepPage() {
       }
     >
   >({})
+
+  const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null)
+  const [interimText, setInterimText] = useState('')
+
+  const handleFinalTranscript = useCallback((text: string) => {
+    if (!recordingQuestionId) return
+    setDraftAnswers((prev) => {
+      const current = prev[recordingQuestionId] || ''
+      const newText = current + (current.endsWith(' ') || current === '' ? '' : ' ') + text
+      return {
+        ...prev,
+        [recordingQuestionId]: newText,
+      }
+    })
+  }, [recordingQuestionId])
+
+  const handleInterimTranscript = useCallback((text: string) => {
+    setInterimText(text)
+  }, [])
+
+  const {
+    isListening,
+    isSupported,
+    permissionDenied,
+    startListening,
+    stopListening,
+  } = useSpeechToText({
+    onFinalTranscript: handleFinalTranscript,
+    onInterimTranscript: handleInterimTranscript,
+  })
+
+  const toggleRecording = (qId: string) => {
+    if (isListening && recordingQuestionId === qId) {
+      stopListening()
+      setRecordingQuestionId(null)
+      setInterimText('')
+    } else {
+      if (isListening) stopListening()
+      setRecordingQuestionId(qId)
+      setInterimText('')
+      startListening()
+    }
+  }
 
   useEffect(() => {
     const loadQuestions = async () => {
@@ -261,42 +306,82 @@ export default function InterviewPrepPage() {
                 </div>
                 <p className="font-medium text-slate-900">{q.question}</p>
 
-                <textarea
-                  value={draftAnswers[q.id] || ''}
-                  onChange={(e) =>
-                    setDraftAnswers((prev) => ({
-                      ...prev,
-                      [q.id]: e.target.value,
-                    }))
-                  }
-                  placeholder="Write your practice answer..."
-                  className="w-full min-h-24 rounded-lg border border-slate-200 px-4 py-3 text-sm"
-                />
+                <div className="relative">
+                  <textarea
+                    value={(draftAnswers[q.id] || '') + (recordingQuestionId === q.id && interimText ? (draftAnswers[q.id] ? ' ' : '') + interimText : '')}
+                    onChange={(e) =>
+                      setDraftAnswers((prev) => ({
+                        ...prev,
+                        [q.id]: e.target.value,
+                      }))
+                    }
+                    placeholder="Write your practice answer or use the microphone to speak..."
+                    className={`w-full min-h-24 rounded-lg border px-4 py-3 text-sm transition-colors ${recordingQuestionId === q.id ? 'border-teal-500 bg-teal-50/30' : 'border-slate-200'}`}
+                  />
+                  {recordingQuestionId === q.id && (
+                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                      <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                      </span>
+                      <span className="text-xs font-medium text-rose-500 animate-pulse">Listening...</span>
+                    </div>
+                  )}
+                </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleSave(q.id, false)}
-                    disabled={savingQuestionId === q.id}
-                  >
-                    {savingQuestionId === q.id ? 'Saving...' : 'Save Draft'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => void handleSave(q.id, true)}
-                    disabled={savingQuestionId === q.id}
-                  >
-                    Mark Complete
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleGenerateFeedback(q.id)}
-                    disabled={coachingForQuestionId === q.id}
-                  >
-                    {coachingForQuestionId === q.id ? 'Coaching...' : 'Get AI Feedback'}
-                  </Button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleSave(q.id, false)}
+                      disabled={savingQuestionId === q.id}
+                    >
+                      {savingQuestionId === q.id ? 'Saving...' : 'Save Draft'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => void handleSave(q.id, true)}
+                      disabled={savingQuestionId === q.id}
+                    >
+                      Mark Complete
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleGenerateFeedback(q.id)}
+                      disabled={coachingForQuestionId === q.id}
+                    >
+                      {coachingForQuestionId === q.id ? 'Coaching...' : 'Get AI Feedback'}
+                    </Button>
+                  </div>
+
+                  {isSupported && (
+                    <div className="flex flex-col items-end gap-1">
+                      <Button
+                        variant={recordingQuestionId === q.id ? 'destructive' : 'outline'}
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => toggleRecording(q.id)}
+                        disabled={permissionDenied}
+                      >
+                        {recordingQuestionId === q.id ? (
+                          <>
+                            <FiMicOff className="h-4 w-4" /> Stop Recording
+                          </>
+                        ) : (
+                          <>
+                            <FiMic className="h-4 w-4" /> Record Answer
+                          </>
+                        )}
+                      </Button>
+                      {permissionDenied && (
+                        <span className="text-[10px] text-rose-500 font-medium">
+                          Microphone blocked. Click the lock icon in your address bar to allow.
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {feedbackByQuestion[q.id] && (

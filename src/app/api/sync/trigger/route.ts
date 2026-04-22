@@ -34,7 +34,7 @@ function getSyncLimitForTier(tier: AppTier) {
   }
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const requestMeta = {
     ipAddress: null as string | null,
     userAgent: null as string | null,
@@ -95,14 +95,14 @@ export async function POST() {
     )
   }
 
-  const { data: oauthToken, error: oauthError } = await supabase
+  const { data: oauthTokens, error: oauthError } = await supabase
     .from('oauth_tokens')
     .select('id,is_revoked')
     .eq('user_id', user.id)
     .eq('provider', 'google_gmail')
-    .single()
+    .eq('is_revoked', false)
 
-  if (oauthError || !oauthToken || oauthToken.is_revoked) {
+  if (oauthError || !oauthTokens || oauthTokens.length === 0) {
     await recordAuditEvent({
       userId: user.id,
       eventType: 'sync_denied_oauth_missing',

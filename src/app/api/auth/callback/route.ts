@@ -49,10 +49,27 @@ export async function GET(request: NextRequest) {
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null
 
+    let providerEmail = 'unknown'
+    if (tokens.id_token) {
+      try {
+        const payload = tokens.id_token.split('.')[1]
+        if (payload) {
+          const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+          const parsed = JSON.parse(Buffer.from(base64, 'base64').toString('utf8')) as { email?: string }
+          if (parsed.email) {
+            providerEmail = parsed.email
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+
     const { error } = await supabase.from('oauth_tokens').upsert(
       {
         user_id: user.id,
         provider: 'google_gmail',
+        provider_email: providerEmail,
         access_token_encrypted: encryptSecret(tokens.access_token),
         refresh_token_encrypted: tokens.refresh_token
           ? encryptSecret(tokens.refresh_token)
@@ -64,7 +81,7 @@ export async function GET(request: NextRequest) {
         updated_at: new Date().toISOString(),
       },
       {
-        onConflict: 'user_id,provider',
+        onConflict: 'user_id,provider,provider_email',
       }
     )
 

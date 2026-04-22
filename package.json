@@ -9,10 +9,10 @@
     "lint": "eslint",
     "test:unit": "tsx --test src/lib/ai/*.test.ts",
     "sync:schedule:daily": "tsx src/lib/sync/runDailySyncScheduler.ts",
-    "worker:sync": "tsx src/lib/queue/workers/runSyncWorker.ts",
-    "worker:extract": "tsx src/lib/queue/workers/runExtractionWorker.ts",
-    "worker:nudge": "tsx src/lib/queue/workers/runNudgeWorker.ts",
-    "worker:digest": "tsx src/lib/queue/workers/runDigestWorker.ts",
+    "worker:sync": "npx tsx src/lib/queue/workers/runSyncWorker.ts",
+    "worker:extract": "npx tsx src/lib/queue/workers/runExtractionWorker.ts",
+    "worker:nudge": "npx tsx src/lib/queue/workers/runNudgeWorker.ts",
+    "worker:digest": "npx tsx src/lib/queue/workers/runDigestWorker.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

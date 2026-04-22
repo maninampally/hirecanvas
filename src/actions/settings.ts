@@ -41,6 +41,7 @@ export type UserSessionItem = {
 }
 
 export type ConnectionStatus = {
+  id: string
   gmail_connected: boolean
   gmail_email: string | null
   gmail_expires_at: string | null
@@ -322,54 +323,53 @@ export async function revokeSession(sessionId: string) {
   }
 }
 
-export async function getConnectionStatus() {
+export async function getConnectionStatus(): Promise<ConnectionStatus[]> {
   const { supabase, user } = await getAuthenticatedUser()
 
   const { data, error } = await supabase
     .from('oauth_tokens')
-    .select('is_revoked,expires_at,scopes,id_token_encrypted')
+    .select('id,is_revoked,expires_at,scopes,id_token_encrypted,provider_email')
     .eq('user_id', user.id)
     .eq('provider', 'google_gmail')
-    .maybeSingle<{
-      is_revoked: boolean
-      expires_at: string | null
-      scopes: string[] | null
-      id_token_encrypted: string | null
-    }>()
 
   if (error) throw error
+  if (!data) return []
 
-  let gmailEmail: string | null = null
-  if (data?.id_token_encrypted) {
-    try {
-      const token = decryptSecret(data.id_token_encrypted)
-      const payload = token.split('.')[1]
-      if (payload) {
-        const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-        const parsed = JSON.parse(Buffer.from(base64, 'base64').toString('utf8')) as { email?: string }
-        gmailEmail = parsed.email || null
+  return data.map((row) => {
+    let gmailEmail: string | null = row.provider_email || null
+    if (!gmailEmail && row.id_token_encrypted) {
+      try {
+        const token = decryptSecret(row.id_token_encrypted)
+        const payload = token.split('.')[1]
+        if (payload) {
+          const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+          const parsed = JSON.parse(Buffer.from(base64, 'base64').toString('utf8')) as { email?: string }
+          if (parsed.email) gmailEmail = parsed.email
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      gmailEmail = null
     }
-  }
 
-  return {
-    gmail_connected: Boolean(data && !data.is_revoked),
-    gmail_email: gmailEmail,
-    gmail_expires_at: data?.expires_at || null,
-    gmail_scopes: data?.scopes || [],
-    gmail_is_revoked: data?.is_revoked || false,
-  } as ConnectionStatus
+    return {
+      id: row.id,
+      gmail_connected: !row.is_revoked,
+      gmail_email: gmailEmail,
+      gmail_expires_at: row.expires_at || null,
+      gmail_scopes: row.scopes || [],
+      gmail_is_revoked: row.is_revoked || false,
+    }
+  })
 }
 
-export async function disconnectGmail() {
+export async function disconnectGmail(tokenId: string) {
   const { supabase, user } = await getAuthenticatedUser()
 
   const { error } = await supabase
     .from('oauth_tokens')
     .delete()
     .eq('user_id', user.id)
+    .eq('id', tokenId)
     .eq('provider', 'google_gmail')
 
   if (error) throw error
@@ -377,11 +377,11 @@ export async function disconnectGmail() {
   return { disconnected: true }
 }
 
-export async function checkGmailConnection() {
+export async function checkGmailConnection(tokenId: string) {
   const { user } = await getAuthenticatedUser()
 
   try {
-    const { accessToken } = await getValidGmailAccessToken(user.id)
+    const { accessToken } = await getValidGmailAccessToken(user.id, tokenId)
     const messages = await listGmailMessages(accessToken, 'newer_than:30d', 1)
 
     return {
