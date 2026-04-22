@@ -86,3 +86,28 @@ export function safeJsonParse<T = unknown>(str: string): T | null {
     return null;
   }
 }
+
+/**
+ * Sanitize search input for use in Supabase PostgREST `.or()` / `.ilike()` filters.
+ * Strips characters that could inject additional filter operators.
+ */
+export function sanitizeSearchInput(raw: string): string {
+  // Remove characters that could break out of an ilike filter:
+  //   commas (,) — splits .or() clauses
+  //   dots (.) — separates column.operator
+  //   parentheses — sub-expressions
+  return raw.replace(/[,.()\[\]{}]/g, '').trim();
+}
+
+/**
+ * Check if a Supabase error indicates a missing table / relation.
+ * Used to gracefully handle cases where migrations haven't been run yet.
+ */
+export function isMissingRelationError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return (
+    error.code === '42P01' ||
+    error.message?.toLowerCase().includes('relation') === true ||
+    error.message?.toLowerCase().includes('does not exist') === true
+  );
+}

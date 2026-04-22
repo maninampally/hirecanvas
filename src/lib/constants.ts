@@ -39,6 +39,60 @@ export const TIER_LABELS: Record<UserTier, string> = {
   admin: 'Admin',
 };
 
+export type MarketingPlan = {
+  name: 'Free' | 'Pro' | 'Elite';
+  price: string;
+  desc: string;
+  features: string[];
+  highlighted: boolean;
+};
+
+export const MARKETING_PLANS: MarketingPlan[] = [
+  {
+    name: 'Free',
+    price: '0',
+    desc: 'Get started with the basics',
+    features: ['Manual job entry', 'Basic templates', 'Interview prep', '5 contacts'],
+    highlighted: false,
+  },
+  {
+    name: 'Pro',
+    price: '9.99',
+    desc: 'Automate your job search',
+    features: ['3 auto syncs/day', 'Gemini AI extraction', 'Follow-up nudges', 'Unlimited contacts', 'All templates'],
+    highlighted: true,
+  },
+  {
+    name: 'Elite',
+    price: '29.99',
+    desc: 'The ultimate edge',
+    features: ['Unlimited syncs', 'Claude AI extraction', 'AI cover letters', 'Interview coaching', 'Priority support'],
+    highlighted: false,
+  },
+];
+
+export const MARKETING_TRUST_CHIPS = [
+  'Secure authentication',
+  'Gmail OAuth integration',
+  'Pipeline-first workflow',
+] as const;
+
+export const MARKETING_DASHBOARD_ACTIVITY = [
+  'Recent status update',
+  'Email synced to pipeline',
+  'Reminder scheduled',
+] as const;
+
+export const MARKETING_CONTACT_EMAIL = 'hello@hirecanvas.in';
+
+export const AUTH_PREVIEW_METRIC_LABELS = ['Applications', 'Interviews', 'Offers'] as const;
+
+export const AUTH_PREVIEW_ACTIVITY = [
+  ['Recent pipeline update', 'bg-violet-100', 'text-violet-800'],
+  ['Inbox sync completed', 'bg-emerald-100', 'text-emerald-800'],
+  ['Next follow-up queued', 'bg-blue-100', 'text-blue-800'],
+] as const;
+
 // ─── Contact Relationships ───────────────────────────────────────────────────
 
 export const RELATIONSHIP_TYPES = [

@@ -49,6 +49,13 @@ export type GoogleTokenResponse = {
   id_token?: string
 }
 
+export type GoogleRefreshTokenResponse = {
+  access_token: string
+  expires_in?: number
+  scope?: string
+  token_type?: string
+}
+
 export async function exchangeCodeForTokens(code: string): Promise<GoogleTokenResponse> {
   const body = new URLSearchParams({
     code,
@@ -69,6 +76,30 @@ export async function exchangeCodeForTokens(code: string): Promise<GoogleTokenRe
   const data = (await response.json()) as GoogleTokenResponse & { error?: string }
   if (!response.ok || data.error) {
     throw new Error(data.error || 'Failed to exchange Google OAuth code')
+  }
+
+  return data
+}
+
+export async function refreshAccessToken(refreshToken: string): Promise<GoogleRefreshTokenResponse> {
+  const body = new URLSearchParams({
+    client_id: getGoogleClientId(),
+    client_secret: getGoogleClientSecret(),
+    refresh_token: refreshToken,
+    grant_type: 'refresh_token',
+  })
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  })
+
+  const data = (await response.json()) as GoogleRefreshTokenResponse & { error?: string; error_description?: string }
+  if (!response.ok || data.error) {
+    throw new Error(data.error_description || data.error || 'Failed to refresh Google OAuth access token')
   }
 
   return data

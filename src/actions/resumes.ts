@@ -1,5 +1,7 @@
 'use server'
 
+import { generateCoverLetter } from '@/lib/ai/coverLetter'
+import { runATSChecker } from '@/lib/ai/atsChecker'
 import { createClient } from '@/lib/supabase/server'
 
 export type ResumeItem = {
@@ -227,4 +229,103 @@ export async function getResumeDownloadUrl(resumeId: string) {
   }
 
   return signed.signedUrl
+}
+
+export async function generateCoverLetterDraft(payload: {
+  resumeId: string
+  jobTitle: string
+  company: string
+  jobDescription: string
+  tone: 'professional' | 'conversational' | 'creative'
+}) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: appUser } = await supabase
+    .from('app_users')
+    .select('tier')
+    .eq('id', user.id)
+    .single<{ tier: 'free' | 'pro' | 'elite' | 'admin' }>()
+
+  if (!appUser || (appUser.tier !== 'elite' && appUser.tier !== 'admin')) {
+    throw new Error('AI cover letters are available on Elite plan')
+  }
+
+  const { data: resume, error } = await supabase
+    .from('resumes')
+    .select('id,name,file_type')
+    .eq('id', payload.resumeId)
+    .eq('user_id', user.id)
+    .single<{ id: string; name: string; file_type: string | null }>()
+
+  if (error || !resume) {
+    throw new Error('Resume not found')
+  }
+
+  if (!payload.jobDescription.trim()) {
+    throw new Error('Job description is required')
+  }
+
+  const result = await generateCoverLetter({
+    resumeName: resume.name,
+    resumeSummary: `File type: ${resume.file_type || 'unknown'}`,
+    jobTitle: payload.jobTitle.trim() || 'Candidate',
+    company: payload.company.trim() || 'Company',
+    jobDescription: payload.jobDescription.trim(),
+    tone: payload.tone,
+  })
+
+  await supabase.from('ai_usage').insert({
+    user_id: user.id,
+    feature: 'cover_letter',
+    tokens_used: Math.max(100, Math.ceil(payload.jobDescription.length / 4)),
+    cost_cents: 2,
+    status: 'completed',
+  })
+
+  return result
+}
+
+export async function generateATSCheck(payload: {
+  resumeText: string
+  jobDescription: string
+  resumeName?: string
+}) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Unauthorized')
+
+  const resumeText = payload.resumeText.trim()
+  const jobDescription = payload.jobDescription.trim()
+
+  if (!resumeText) {
+    throw new Error('Resume text is required for ATS analysis')
+  }
+
+  if (!jobDescription) {
+    throw new Error('Job description is required for ATS analysis')
+  }
+
+  const result = await runATSChecker({
+    resumeText,
+    jobDescription,
+    resumeName: payload.resumeName,
+  })
+
+  await supabase.from('ai_usage').insert({
+    user_id: user.id,
+    feature: 'resume_analysis',
+    tokens_used: Math.max(100, Math.ceil((resumeText.length + jobDescription.length) / 4)),
+    cost_cents: 2,
+    status: 'completed',
+  })
+
+  return result
 }

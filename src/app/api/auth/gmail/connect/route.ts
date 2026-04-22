@@ -12,16 +12,27 @@ export async function GET() {
     return NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'))
   }
 
-  const state = generateOAuthState()
-  const response = NextResponse.redirect(buildGoogleOAuthUrl(state))
+  try {
+    const state = generateOAuthState()
+    const response = NextResponse.redirect(buildGoogleOAuthUrl(state))
 
-  response.cookies.set('gmail_oauth_state', state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 10 * 60,
-    path: '/',
-  })
+    response.cookies.set('gmail_oauth_state', state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 10 * 60,
+      path: '/',
+    })
 
-  return response
+    return response
+  } catch (error) {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const url = new URL('/settings', baseUrl)
+    url.searchParams.set('tab', 'connections')
+    url.searchParams.set(
+      'error',
+      error instanceof Error ? error.message : 'Unable to start Gmail OAuth'
+    )
+    return NextResponse.redirect(url)
+  }
 }

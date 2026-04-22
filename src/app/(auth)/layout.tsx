@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { AUTH_PREVIEW_ACTIVITY, AUTH_PREVIEW_METRIC_LABELS } from '@/lib/constants'
 
 export default function AuthLayout({
   children,
@@ -6,72 +7,57 @@ export default function AuthLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-screen flex">
-      {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-teal-600 via-teal-700 to-teal-900 relative overflow-hidden">
-        {/* Background decorations */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 left-20 w-64 h-64 bg-white rounded-full blur-3xl" />
-          <div className="absolute bottom-20 right-10 w-80 h-80 bg-white rounded-full blur-3xl" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-400 rounded-full blur-3xl" />
-        </div>
+    <div className="min-h-screen flex flex-col lg:flex-row">
+      {/* Left panel — form */}
+      <div className="flex flex-1 flex-col items-center justify-center p-6 bg-[#f0fdfb]">
+        <div className="w-full max-w-md animate-slide-up">{children}</div>
+      </div>
 
-        <div className="relative z-10 flex flex-col justify-between p-12 w-full">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-white font-bold text-sm border border-white/10">
+      {/* Right panel — branding & preview */}
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-center p-12 bg-gradient-to-br from-teal-600 via-teal-700 to-teal-900 relative overflow-hidden">
+        <div className="absolute -top-16 -right-16 h-60 w-60 rounded-full bg-white/10" />
+        <div className="absolute -bottom-20 -left-10 h-72 w-72 rounded-full bg-white/5" />
+
+        <div className="relative z-10 mx-auto max-w-md text-center">
+          <Link href="/" className="mb-10 inline-flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 bg-white/15 text-sm font-bold text-white backdrop-blur-sm">
               H
             </div>
-            <span className="text-xl font-bold text-white/90">HireCanvas</span>
+            <span className="text-xl font-bold tracking-tight text-white/95">HireCanvas</span>
           </Link>
 
-          {/* Value prop */}
-          <div className="space-y-6 max-w-sm">
-            <h2 className="text-3xl font-bold text-white leading-tight">
-              Track smarter.<br />
-              Land faster.
-            </h2>
-            <p className="text-teal-200/80 leading-relaxed">
-              Join thousands of job seekers who use HireCanvas to automate their job search pipeline.
-            </p>
-
-            {/* Stats */}
-            <div className="flex gap-8 pt-4">
-              {[
-                { value: '2.5K+', label: 'Users' },
-                { value: '18K+', label: 'Jobs Tracked' },
-                { value: '92%', label: 'Success Rate' },
-              ].map((stat, i) => (
-                <div key={i}>
-                  <p className="text-2xl font-bold text-white">{stat.value}</p>
-                  <p className="text-xs text-teal-300/60">{stat.label}</p>
+          <div className="mb-8 rounded-2xl border border-white/15 bg-white/10 p-6 backdrop-blur-md">
+            <div className="mb-4 grid grid-cols-3 gap-2.5">
+              {AUTH_PREVIEW_METRIC_LABELS.map((label) => (
+                <div key={label} className="rounded-xl bg-white/10 px-2 py-2.5">
+                  <div className="mx-auto h-5 w-8 rounded bg-white/50" />
+                  <p className="mt-2 text-[10px] font-medium text-white/70">{label}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-1.5 text-left">
+              {AUTH_PREVIEW_ACTIVITY.map(([title, bg, fg]) => (
+                <div
+                  key={title}
+                  className="flex items-center justify-between gap-2 rounded-lg bg-white/10 px-3 py-2"
+                >
+                  <span className="truncate text-xs font-semibold text-white">{title}</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${bg} ${fg}`}>
+                    Active
+                  </span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Testimonial */}
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
-            <p className="text-sm text-teal-50/90 italic leading-relaxed mb-3">
-              &ldquo;HireCanvas helped me organize my entire job search. I went from scattered spreadsheets to landing 3 offers in 6 weeks.&rdquo;
-            </p>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-teal-300 to-emerald-400 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                S
-              </div>
-              <div>
-                <p className="text-sm font-medium text-white/90">Sarah K.</p>
-                <p className="text-xs text-teal-300/60">Software Engineer</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Right panel — form */}
-      <div className="flex-1 flex items-center justify-center p-6 bg-[#f0fdfb]">
-        <div className="w-full max-w-md animate-slide-up">
-          {children}
+          <h2 className="text-2xl font-extrabold leading-tight tracking-tight text-white">
+            Your Job Search
+            <br />
+            Command Center
+          </h2>
+          <p className="mt-3 text-sm leading-relaxed text-teal-100/85">
+            Auto-sync Gmail, extract data with AI, and track your entire pipeline from application to offer.
+          </p>
         </div>
       </div>
     </div>

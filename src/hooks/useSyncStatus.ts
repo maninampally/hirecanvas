@@ -16,10 +16,16 @@ export type SyncStatus = {
 export function useSyncStatus(userId?: string) {
   const supabase = useMemo(() => createClient(), [])
   const [status, setStatus] = useState<SyncStatus | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loadedUserId, setLoadedUserId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     let mounted = true
+
+    if (!userId) {
+      return () => {
+        mounted = false
+      }
+    }
 
     const loadInitial = async () => {
       try {
@@ -31,17 +37,11 @@ export function useSyncStatus(userId?: string) {
           setStatus(data.status)
         }
       } finally {
-        if (mounted) setLoading(false)
+        if (mounted) setLoadedUserId(userId)
       }
     }
 
     void loadInitial()
-
-    if (!userId) {
-      return () => {
-        mounted = false
-      }
-    }
 
     const channel = supabase
       .channel(`sync-status-${userId}`)
@@ -71,9 +71,12 @@ export function useSyncStatus(userId?: string) {
     }
   }, [supabase, userId])
 
+  const loading = Boolean(userId) && loadedUserId !== userId
+  const visibleStatus = userId ? status : null
+
   return {
-    status,
+    status: visibleStatus,
     loading,
-    syncInProgress: status?.status === 'in_progress',
+    syncInProgress: visibleStatus?.status === 'in_progress',
   }
 }

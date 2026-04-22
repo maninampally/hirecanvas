@@ -13,6 +13,12 @@ type AdminOverviewResponse = {
     activeSyncJobs: number
     totalAiCostCents: number
     totalAiTokens: number
+    mrrCents: number
+    activeSubscriptions: number
+    churnRatePercent: number
+    ltvCents: number
+    infraEstimateCents: number
+    netMarginPercent: number
   }
   recentAudit: Array<{
     id: string
@@ -224,6 +230,44 @@ export default function AdminPage() {
           <div>
             <p className="text-sm text-slate-600">Approx Tokens Processed</p>
             <p className="text-2xl font-bold text-slate-900">{metrics?.totalAiTokens ?? 0}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Revenue Snapshot</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div>
+            <p className="text-sm text-slate-600">MRR</p>
+            <p className="text-2xl font-bold text-slate-900">
+              ${((metrics?.mrrCents ?? 0) / 100).toFixed(2)}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600">Active Subscriptions</p>
+            <p className="text-2xl font-bold text-slate-900">{metrics?.activeSubscriptions ?? 0}</p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600">Churn Rate</p>
+            <p className="text-2xl font-bold text-slate-900">{(metrics?.churnRatePercent ?? 0).toFixed(2)}%</p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600">LTV</p>
+            <p className="text-2xl font-bold text-slate-900">
+              ${((metrics?.ltvCents ?? 0) / 100).toFixed(2)}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600">Infra Estimate</p>
+            <p className="text-2xl font-bold text-slate-900">
+              ${((metrics?.infraEstimateCents ?? 0) / 100).toFixed(2)}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600">Net Margin</p>
+            <p className="text-2xl font-bold text-slate-900">{(metrics?.netMarginPercent ?? 0).toFixed(2)}%</p>
           </div>
         </CardContent>
       </Card>

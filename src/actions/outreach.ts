@@ -1,19 +1,10 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { outreachSchema, type OutreachFormData, type OutreachStatus } from '@/lib/validations/outreach'
+import { sanitizeSearchInput, isMissingRelationError } from '@/lib/utils'
 
-export type OutreachMethod = 'LinkedIn' | 'Email' | 'Phone' | 'WhatsApp'
-export type OutreachStatus = 'draft' | 'sent' | 'replied' | 'no_response'
-
-export type OutreachFormData = {
-  company: string
-  contact_name?: string
-  contact_email?: string
-  method?: OutreachMethod
-  status?: OutreachStatus
-  notes?: string
-  outreach_date?: string
-}
+export type { OutreachFormData, OutreachMethod, OutreachStatus } from '@/lib/validations/outreach'
 
 function normalizeOutreachInput(data: OutreachFormData) {
   return {
@@ -34,18 +25,21 @@ export async function createOutreach(data: OutreachFormData) {
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Unauthorized')
-  if (!data.company?.trim()) throw new Error('Company is required')
+  const validated = outreachSchema.parse(data)
 
   const { data: outreach, error } = await supabase
     .from('outreach')
     .insert({
-      ...normalizeOutreachInput(data),
+      ...normalizeOutreachInput(validated),
       user_id: user.id,
     })
     .select('*')
     .single()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Outreach table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
   return outreach
 }
 
@@ -56,12 +50,12 @@ export async function updateOutreach(id: string, data: OutreachFormData) {
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Unauthorized')
-  if (!data.company?.trim()) throw new Error('Company is required')
+  const validated = outreachSchema.parse(data)
 
   const { data: outreach, error } = await supabase
     .from('outreach')
     .update({
-      ...normalizeOutreachInput(data),
+      ...normalizeOutreachInput(validated),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
@@ -69,7 +63,10 @@ export async function updateOutreach(id: string, data: OutreachFormData) {
     .select('*')
     .single()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Outreach table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
   return outreach
 }
 
@@ -87,7 +84,10 @@ export async function deleteOutreach(id: string) {
     .eq('id', id)
     .eq('user_id', user.id)
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Outreach table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
 }
 
 export async function getOutreach(search?: string, status?: OutreachStatus | '') {
@@ -109,11 +109,16 @@ export async function getOutreach(search?: string, status?: OutreachStatus | '')
   }
 
   if (search?.trim()) {
-    const value = search.trim()
-    query = query.or(`company.ilike.%${value}%,contact_name.ilike.%${value}%,contact_email.ilike.%${value}%`)
+    const value = sanitizeSearchInput(search)
+    if (value) {
+      query = query.or(`company.ilike.%${value}%,contact_name.ilike.%${value}%,contact_email.ilike.%${value}%`)
+    }
   }
 
   const { data, error } = await query
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) return []
+    throw error
+  }
   return data
 }

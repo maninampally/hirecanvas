@@ -5,6 +5,7 @@ import {
   createTemplate,
   deleteTemplate,
   getTemplates,
+  seedStarterTemplates,
   updateTemplate,
   type TemplateFormData,
   type TemplateType,
@@ -13,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { TableSkeletonRows } from '@/components/ui/table-skeleton-rows'
 import { toast } from 'sonner'
 
@@ -36,15 +38,24 @@ export default function TemplatesPage() {
   const [items, setItems] = useState<Template[]>([])
   const [search, setSearch] = useState('')
   const [type, setType] = useState<TemplateType | ''>('')
+  const [categoryFilter, setCategoryFilter] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<TemplateFormData>(initialForm)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isSeeding, setIsSeeding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [placeholderValues, setPlaceholderValues] = useState({
+    company: 'Acme Inc',
+    role: 'Software Engineer',
+    name: 'Alex',
+  })
+
+  const [bodySelection, setBodySelection] = useState({ start: 0, end: 0 })
 
   async function loadData(currentSearch?: string, currentType?: TemplateType | '') {
     setIsLoading(true)
@@ -60,7 +71,11 @@ export default function TemplatesPage() {
   }
 
   useEffect(() => {
-    loadData()
+    const timer = setTimeout(() => {
+      void loadData()
+    }, 0)
+
+    return () => clearTimeout(timer)
   }, [])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -146,6 +161,63 @@ export default function TemplatesPage() {
     }
   }
 
+  function renderTemplate(body: string) {
+    return body
+      .replaceAll('{company}', placeholderValues.company)
+      .replaceAll('{role}', placeholderValues.role)
+      .replaceAll('{name}', placeholderValues.name)
+  }
+
+  function handleInsertPlaceholder(token: '{company}' | '{role}' | '{name}') {
+    setForm((prev) => {
+      const text = prev.body || ''
+      const start = bodySelection.start
+      const end = bodySelection.end
+      const nextBody = `${text.slice(0, start)}${token}${text.slice(end)}`
+      return {
+        ...prev,
+        body: nextBody,
+      }
+    })
+  }
+
+  async function handleCopyTemplate(body: string) {
+    try {
+      await navigator.clipboard.writeText(renderTemplate(body))
+      toast.success('Template copied to clipboard')
+    } catch {
+      toast.error('Unable to copy template')
+    }
+  }
+
+  const filteredItems = items.filter((item) => {
+    if (!categoryFilter) return true
+    return (item.category || '').toLowerCase() === categoryFilter.toLowerCase()
+  })
+
+  const availableCategories = Array.from(
+    new Set(items.map((item) => item.category).filter((value): value is string => Boolean(value?.trim())))
+  ).sort((a, b) => a.localeCompare(b))
+
+  async function handleSeedStarterTemplates() {
+    setIsSeeding(true)
+    setError(null)
+    try {
+      const result = await seedStarterTemplates()
+      await loadData(search, type)
+      if (result.inserted === 0) {
+        toast.success('Starter templates already loaded')
+      } else {
+        toast.success(`Added ${result.inserted} starter templates`)
+      }
+    } catch (err) {
+      toast.error('Unable to load starter templates')
+      setError(err instanceof Error ? err.message : 'Failed to seed starter templates')
+    } finally {
+      setIsSeeding(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -166,6 +238,18 @@ export default function TemplatesPage() {
         </Button>
       </div>
 
+      <Card>
+        <CardContent className="pt-6 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-medium text-slate-900">Starter Library</p>
+            <p className="text-xs text-slate-500">Load default outreach templates for cold outreach, follow-ups, and post-application messages.</p>
+          </div>
+          <Button variant="outline" onClick={() => void handleSeedStarterTemplates()} disabled={isSeeding}>
+            {isSeeding ? 'Loading...' : 'Load Starter Templates'}
+          </Button>
+        </CardContent>
+      </Card>
+
       <div className="flex flex-wrap gap-3">
         <Input
           placeholder="Search templates"
@@ -173,21 +257,71 @@ export default function TemplatesPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
         />
-        <select
+        <Select
           value={type}
           onChange={(e) => setType(e.target.value as TemplateType | '')}
-          className="px-4 py-2 border border-slate-200 rounded-lg"
+          className="w-44"
         >
           <option value="">All types</option>
           <option value="Email">Email</option>
           <option value="LinkedIn">LinkedIn</option>
           <option value="WhatsApp">WhatsApp</option>
           <option value="Cover Letter">Cover Letter</option>
-        </select>
+        </Select>
+        <Select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="w-52"
+        >
+          <option value="">All categories</option>
+          {availableCategories.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </Select>
         <Button variant="outline" onClick={() => loadData(search, type)} disabled={isLoading}>
           Filter
         </Button>
       </div>
+
+      <Card>
+        <CardContent className="pt-6 space-y-3">
+          <p className="text-sm font-medium text-slate-900">Placeholder Preview Values</p>
+          <div className="grid gap-3 md:grid-cols-3">
+            <Input
+              value={placeholderValues.company}
+              onChange={(e) =>
+                setPlaceholderValues((prev) => ({
+                  ...prev,
+                  company: e.target.value,
+                }))
+              }
+              placeholder="Company"
+            />
+            <Input
+              value={placeholderValues.role}
+              onChange={(e) =>
+                setPlaceholderValues((prev) => ({
+                  ...prev,
+                  role: e.target.value,
+                }))
+              }
+              placeholder="Role"
+            />
+            <Input
+              value={placeholderValues.name}
+              onChange={(e) =>
+                setPlaceholderValues((prev) => ({
+                  ...prev,
+                  name: e.target.value,
+                }))
+              }
+              placeholder="Name"
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       {showForm && (
         <Card>
@@ -214,7 +348,7 @@ export default function TemplatesPage() {
                 />
               </div>
 
-              <select
+              <Select
                 value={form.type}
                 onChange={(e) =>
                   setForm((prev) => ({
@@ -222,18 +356,36 @@ export default function TemplatesPage() {
                     type: e.target.value as TemplateType,
                   }))
                 }
-                className="px-4 py-2 border border-slate-200 rounded-lg"
               >
                 <option value="Email">Email</option>
                 <option value="LinkedIn">LinkedIn</option>
                 <option value="WhatsApp">WhatsApp</option>
                 <option value="Cover Letter">Cover Letter</option>
-              </select>
+              </Select>
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => handleInsertPlaceholder('{company}')}> 
+                  Insert {'{company}'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => handleInsertPlaceholder('{role}')}> 
+                  Insert {'{role}'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => handleInsertPlaceholder('{name}')}> 
+                  Insert {'{name}'}
+                </Button>
+              </div>
 
               <textarea
                 required
                 value={form.body}
                 onChange={(e) => setForm((prev) => ({ ...prev, body: e.target.value }))}
+                onSelect={(e) => {
+                  const target = e.currentTarget
+                  setBodySelection({
+                    start: target.selectionStart || 0,
+                    end: target.selectionEnd || 0,
+                  })
+                }}
                 placeholder="Template body"
                 className="w-full min-h-28 rounded-lg border border-slate-200 px-4 py-3 text-sm"
               />
@@ -272,7 +424,7 @@ export default function TemplatesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {!isLoading && items.length === 0 && (
+                {!isLoading && filteredItems.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
                       No templates found.
@@ -287,7 +439,7 @@ export default function TemplatesPage() {
                   />
                 )}
 
-                {items.map((item) => (
+                {filteredItems.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50">
                     <td className="px-6 py-4 font-medium text-slate-900">{item.name}</td>
                     <td className="px-6 py-4 text-slate-700">{item.type}</td>
@@ -298,6 +450,14 @@ export default function TemplatesPage() {
                     <td className="px-6 py-4 text-slate-600 text-sm max-w-xs truncate">{item.body}</td>
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-slate-700"
+                          onClick={() => void handleCopyTemplate(item.body)}
+                        >
+                          Copy
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"

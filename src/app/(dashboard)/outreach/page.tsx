@@ -1,20 +1,23 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   createOutreach,
   deleteOutreach,
   getOutreach,
   updateOutreach,
   type OutreachFormData,
-  type OutreachStatus,
 } from '@/actions/outreach'
+
+type OutreachStatusValue = 'draft' | 'sent' | 'replied' | 'no_response'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { TableSkeletonRows } from '@/components/ui/table-skeleton-rows'
 import { toast } from 'sonner'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 type OutreachItem = {
   id: string
@@ -22,7 +25,7 @@ type OutreachItem = {
   contact_name: string | null
   contact_email: string | null
   method: 'LinkedIn' | 'Email' | 'Phone' | 'WhatsApp' | null
-  status: OutreachStatus
+  status: OutreachStatusValue
   notes: string | null
   outreach_date: string | null
 }
@@ -37,7 +40,7 @@ const initialForm: OutreachFormData = {
   outreach_date: '',
 }
 
-const statusClasses: Record<OutreachStatus, string> = {
+const statusClasses: Record<OutreachStatusValue, string> = {
   draft: 'bg-slate-100 text-slate-700',
   sent: 'bg-blue-100 text-blue-700',
   replied: 'bg-emerald-100 text-emerald-700',
@@ -45,35 +48,66 @@ const statusClasses: Record<OutreachStatus, string> = {
 }
 
 export default function OutreachPage() {
-  const [items, setItems] = useState<OutreachItem[]>([])
+  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
-  const [status, setStatus] = useState<OutreachStatus | ''>('')
+  const [status, setStatus] = useState<OutreachStatusValue | ''>('')
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<OutreachFormData>(initialForm)
-  const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
-  async function loadData(currentSearch?: string, currentStatus?: OutreachStatus | '') {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const data = await getOutreach(currentSearch, currentStatus)
-      setItems((data || []) as OutreachItem[])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load outreach')
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const queryKey = ['outreach', search, status]
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  const outreachQuery = useQuery({
+    queryKey,
+    queryFn: async () => (await getOutreach(search, status)) as OutreachItem[],
+  })
+
+  const items = outreachQuery.data || []
+  const isLoading = outreachQuery.isLoading
+
+  const createMutation = useMutation({
+    mutationFn: async (payload: OutreachFormData) => (await createOutreach(payload)) as OutreachItem,
+    onSuccess: async (created) => {
+      queryClient.setQueryData<OutreachItem[]>(queryKey, (prev = []) => [created, ...prev])
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: OutreachFormData }) =>
+      (await updateOutreach(id, payload)) as OutreachItem,
+    onSuccess: async (updated) => {
+      queryClient.setQueryData<OutreachItem[]>(queryKey, (prev = []) =>
+        prev.map((item) => (item.id === updated.id ? updated : item))
+      )
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => deleteOutreach(id),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<OutreachItem[]>(queryKey)
+      queryClient.setQueryData<OutreachItem[]>(queryKey, (prev = []) =>
+        prev.filter((item) => item.id !== id)
+      )
+      return { previous }
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous)
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -96,12 +130,14 @@ export default function OutreachPage() {
     try {
       let saved: OutreachItem
       if (editingId) {
-        saved = (await updateOutreach(editingId, form)) as OutreachItem
-        setItems((prev) => prev.map((item) => (item.id === editingId ? saved : item)))
+        saved = await updateMutation.mutateAsync({ id: editingId, payload: form })
+        queryClient.setQueryData<OutreachItem[]>(queryKey, (prev = []) =>
+          prev.map((item) => (item.id === editingId ? saved : item))
+        )
         toast.success('Outreach updated')
       } else {
-        saved = (await createOutreach(form)) as OutreachItem
-        setItems((prev) => [saved, ...prev])
+        saved = await createMutation.mutateAsync(form)
+        queryClient.setQueryData<OutreachItem[]>(queryKey, (prev = []) => [saved, ...prev])
         toast.success('Outreach created')
       }
 
@@ -134,14 +170,10 @@ export default function OutreachPage() {
     setConfirmDeleteId(null)
     setPendingDeleteId(id)
     setError(null)
-    const previous = items
-    setItems((prev) => prev.filter((item) => item.id !== id))
-
     try {
-      await deleteOutreach(id)
+      await deleteMutation.mutateAsync(id)
       toast.success('Outreach deleted')
     } catch (err) {
-      setItems(previous)
       toast.error('Unable to delete outreach')
       setError(err instanceof Error ? err.message : 'Failed to delete outreach')
     } finally {
@@ -176,18 +208,18 @@ export default function OutreachPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
         />
-        <select
+        <Select
           value={status}
-          onChange={(e) => setStatus(e.target.value as OutreachStatus | '')}
-          className="px-4 py-2 border border-slate-200 rounded-lg"
+          onChange={(e) => setStatus(e.target.value as OutreachStatusValue | '')}
+          className="w-44"
         >
           <option value="">All statuses</option>
           <option value="draft">Draft</option>
           <option value="sent">Sent</option>
           <option value="replied">Replied</option>
           <option value="no_response">No Response</option>
-        </select>
-        <Button variant="outline" onClick={() => loadData(search, status)} disabled={isLoading}>
+        </Select>
+        <Button variant="outline" onClick={() => void outreachQuery.refetch()} disabled={isLoading}>
           Filter
         </Button>
       </div>
@@ -228,7 +260,7 @@ export default function OutreachPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <select
+                <Select
                   value={form.method || 'Email'}
                   onChange={(e) =>
                     setForm((prev) => ({
@@ -236,29 +268,27 @@ export default function OutreachPage() {
                       method: e.target.value as OutreachFormData['method'],
                     }))
                   }
-                  className="px-4 py-2 border border-slate-200 rounded-lg"
                 >
                   <option value="Email">Email</option>
                   <option value="LinkedIn">LinkedIn</option>
                   <option value="Phone">Phone</option>
                   <option value="WhatsApp">WhatsApp</option>
-                </select>
+                </Select>
 
-                <select
+                <Select
                   value={form.status || 'draft'}
                   onChange={(e) =>
                     setForm((prev) => ({
                       ...prev,
-                      status: e.target.value as OutreachStatus,
+                      status: e.target.value as OutreachStatusValue,
                     }))
                   }
-                  className="px-4 py-2 border border-slate-200 rounded-lg"
                 >
                   <option value="draft">Draft</option>
                   <option value="sent">Sent</option>
                   <option value="replied">Replied</option>
                   <option value="no_response">No Response</option>
-                </select>
+                </Select>
               </div>
 
               <textarea

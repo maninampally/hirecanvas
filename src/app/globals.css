@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-plus-jakarta);
+  --font-sans: var(--font-manrope, "Manrope", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+  --font-heading: var(--font-sora, "Sora", "Manrope", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
   --color-primary: #14b8a6;
   --color-primary-dark: #0d9488;
   --color-page-bg: #f0fdfb;
@@ -19,6 +20,29 @@ html {
 body {
   background-color: #f0fdfb;
   color: #134e4a;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  font-feature-settings: 'ss01' 1;
+}
+
+h1,
+h2 {
+  letter-spacing: -0.02em;
+}
+
+h5,
+h6 {
+  letter-spacing: -0.01em;
 }
 
 /* ─── Scrollbar ─────────────────────────────────────────────── */

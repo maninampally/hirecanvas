@@ -1,15 +1,10 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { reminderSchema, type ReminderFormData } from '@/lib/validations/reminders'
+import { isMissingRelationError } from '@/lib/utils'
 
-export type ReminderType = 'Follow Up' | 'Apply Deadline' | 'Interview Prep' | 'Other'
-
-export type ReminderFormData = {
-  title: string
-  type?: ReminderType
-  due_date: string
-  notes?: string
-}
+export type { ReminderFormData, ReminderType } from '@/lib/validations/reminders'
 
 function normalizeReminderInput(data: ReminderFormData) {
   return {
@@ -27,19 +22,21 @@ export async function createReminder(data: ReminderFormData) {
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Unauthorized')
-  if (!data.title?.trim()) throw new Error('Title is required')
-  if (!data.due_date) throw new Error('Due date is required')
+  const validated = reminderSchema.parse(data)
 
   const { data: reminder, error } = await supabase
     .from('reminders')
     .insert({
-      ...normalizeReminderInput(data),
+      ...normalizeReminderInput(validated),
       user_id: user.id,
     })
     .select('*')
     .single()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Reminders table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
   return reminder
 }
 
@@ -50,13 +47,12 @@ export async function updateReminder(id: string, data: ReminderFormData) {
   } = await supabase.auth.getUser()
 
   if (!user) throw new Error('Unauthorized')
-  if (!data.title?.trim()) throw new Error('Title is required')
-  if (!data.due_date) throw new Error('Due date is required')
+  const validated = reminderSchema.parse(data)
 
   const { data: reminder, error } = await supabase
     .from('reminders')
     .update({
-      ...normalizeReminderInput(data),
+      ...normalizeReminderInput(validated),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
@@ -64,7 +60,10 @@ export async function updateReminder(id: string, data: ReminderFormData) {
     .select('*')
     .single()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Reminders table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
   return reminder
 }
 
@@ -87,7 +86,10 @@ export async function toggleReminderComplete(id: string, completed: boolean) {
     .select('*')
     .single()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Reminders table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
   return reminder
 }
 
@@ -105,7 +107,10 @@ export async function deleteReminder(id: string) {
     .eq('id', id)
     .eq('user_id', user.id)
 
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) throw new Error('Reminders table is not available yet. Please run the latest database migrations.')
+    throw error
+  }
 }
 
 export async function getReminders(showCompleted: boolean) {
@@ -127,6 +132,9 @@ export async function getReminders(showCompleted: boolean) {
   }
 
   const { data, error } = await query
-  if (error) throw error
+  if (error) {
+    if (isMissingRelationError(error)) return []
+    throw error
+  }
   return data
 }

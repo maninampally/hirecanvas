@@ -2,13 +2,17 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
+  generateInterviewFeedback,
   getInterviewQuestions,
   saveInterviewAnswer,
   type InterviewQuestionWithProgress,
 } from '@/actions/interviewPrep'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PageHeader } from '@/components/ui/page-header'
+import { Select } from '@/components/ui/select'
 import { toast } from 'sonner'
 
 export default function InterviewPrepPage() {
@@ -20,6 +24,20 @@ export default function InterviewPrepPage() {
   const [difficulty, setDifficulty] = useState('')
   const [draftAnswers, setDraftAnswers] = useState<Record<string, string>>({})
   const [savingQuestionId, setSavingQuestionId] = useState<string | null>(null)
+  const [coachingForQuestionId, setCoachingForQuestionId] = useState<string | null>(null)
+  const [feedbackByQuestion, setFeedbackByQuestion] = useState<
+    Record<
+      string,
+      {
+        score: number
+        summary: string
+        strengths: string[]
+        improvements: string[]
+        followUpQuestions: string[]
+        provider: string
+      }
+    >
+  >({})
 
   useEffect(() => {
     const loadQuestions = async () => {
@@ -96,16 +114,50 @@ export default function InterviewPrepPage() {
     }
   }
 
+  async function handleGenerateFeedback(questionId: string) {
+    const answer = (draftAnswers[questionId] || '').trim()
+    if (!answer) {
+      toast.error('Write an answer before requesting AI feedback')
+      return
+    }
+
+    setCoachingForQuestionId(questionId)
+    try {
+      const feedback = await generateInterviewFeedback({
+        questionId,
+        userAnswer: answer,
+      })
+
+      setFeedbackByQuestion((prev) => ({
+        ...prev,
+        [questionId]: {
+          score: feedback.score,
+          summary: feedback.summary,
+          strengths: feedback.strengths,
+          improvements: feedback.improvements,
+          followUpQuestions: feedback.followUpQuestions,
+          provider: feedback.provider,
+        },
+      }))
+
+      toast.success('AI feedback generated')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Unable to generate feedback')
+    } finally {
+      setCoachingForQuestionId(null)
+    }
+  }
+
   const categories = Array.from(new Set(questions.map((item) => item.category))).sort()
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900">Interview Prep</h1>
-        <p className="text-slate-600 mt-1">Practice questions and track your answer progress</p>
-      </div>
+    <div className="space-y-6 animate-slide-up">
+      <PageHeader
+        title="Interview Prep"
+        description="Practice questions and get AI coaching feedback"
+      />
 
-      <Card>
+      <Card className="animate-slide-up">
         <CardContent className="pt-6">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -113,6 +165,9 @@ export default function InterviewPrepPage() {
                 Progress: <span className="font-semibold text-slate-900">{stats.completed}/{stats.total}</span>{' '}
                 completed ({stats.percent}%)
               </p>
+              <Badge variant={stats.percent >= 75 ? 'emerald' : stats.percent >= 50 ? 'amber' : 'blue'}>
+                Completion {stats.percent}%
+              </Badge>
             </div>
             <div className="h-2 rounded-full bg-slate-100">
               <div
@@ -124,7 +179,7 @@ export default function InterviewPrepPage() {
         </CardContent>
       </Card>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-col gap-4">
         <Input
           placeholder="Search questions"
           value={search}
@@ -132,29 +187,46 @@ export default function InterviewPrepPage() {
           className="max-w-sm"
         />
 
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="px-4 py-2 border border-slate-200 rounded-lg"
-        >
-          <option value="">All categories</option>
-          {categories.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCategory('')}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                !category
+                  ? 'bg-teal-500 text-white shadow-sm shadow-teal-500/25'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200/80'
+              }`}
+            >
+              All
+            </button>
+            {categories.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setCategory(item)}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                  category === item
+                    ? 'bg-teal-500 text-white shadow-sm shadow-teal-500/25'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200/80'
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
 
-        <select
-          value={difficulty}
-          onChange={(e) => setDifficulty(e.target.value)}
-          className="px-4 py-2 border border-slate-200 rounded-lg"
-        >
-          <option value="">All difficulty</option>
-          <option value="Easy">Easy</option>
-          <option value="Medium">Medium</option>
-          <option value="Hard">Hard</option>
-        </select>
+          <Select
+            value={difficulty}
+            onChange={(e) => setDifficulty(e.target.value)}
+            className="w-44"
+          >
+            <option value="">All difficulty</option>
+            <option value="Easy">Easy</option>
+            <option value="Medium">Medium</option>
+            <option value="Hard">Hard</option>
+          </Select>
+        </div>
       </div>
 
       {error && (
@@ -177,17 +249,17 @@ export default function InterviewPrepPage() {
         )}
 
         {filtered.map((q) => (
-          <Card key={q.id}>
+          <Card key={q.id} className="animate-slide-up">
             <CardContent className="pt-6">
               <div className="space-y-3">
                 <div className="flex gap-2">
-                  <span className="text-xs bg-teal-100 text-teal-700 px-2 py-1 rounded">{q.category}</span>
-                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded">{q.difficulty}</span>
+                  <Badge variant="teal">{q.category}</Badge>
+                  <Badge variant="amber">{q.difficulty}</Badge>
                   {q.progress?.is_completed && (
-                    <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">Completed</span>
+                    <Badge variant="emerald">Completed</Badge>
                   )}
                 </div>
-                <p className="font-medium">{q.question}</p>
+                <p className="font-medium text-slate-900">{q.question}</p>
 
                 <textarea
                   value={draftAnswers[q.id] || ''}
@@ -217,7 +289,50 @@ export default function InterviewPrepPage() {
                   >
                     Mark Complete
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleGenerateFeedback(q.id)}
+                    disabled={coachingForQuestionId === q.id}
+                  >
+                    {coachingForQuestionId === q.id ? 'Coaching...' : 'Get AI Feedback'}
+                  </Button>
                 </div>
+
+                {feedbackByQuestion[q.id] && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={feedbackByQuestion[q.id].score >= 75 ? 'emerald' : feedbackByQuestion[q.id].score >= 55 ? 'amber' : 'rose'}>
+                        Score: {feedbackByQuestion[q.id].score}/100
+                      </Badge>
+                      <span className="text-xs text-slate-500">via {feedbackByQuestion[q.id].provider}</span>
+                    </div>
+
+                    <p className="text-slate-700">{feedbackByQuestion[q.id].summary}</p>
+
+                    {feedbackByQuestion[q.id].strengths.length > 0 && (
+                      <div>
+                        <p className="font-medium text-slate-800">Strengths</p>
+                        <ul className="list-disc pl-5 text-slate-700">
+                          {feedbackByQuestion[q.id].strengths.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {feedbackByQuestion[q.id].improvements.length > 0 && (
+                      <div>
+                        <p className="font-medium text-slate-800">Improvements</p>
+                        <ul className="list-disc pl-5 text-slate-700">
+                          {feedbackByQuestion[q.id].improvements.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

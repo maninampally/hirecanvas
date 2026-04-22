@@ -1,16 +1,22 @@
 {
   "name": "hirecanvas",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:unit": "tsx --test src/lib/ai/*.test.ts",
+    "sync:schedule:daily": "tsx src/lib/sync/runDailySyncScheduler.ts",
     "worker:sync": "tsx src/lib/queue/workers/runSyncWorker.ts",
-    "worker:extract": "tsx src/lib/queue/workers/runExtractionWorker.ts"
+    "worker:extract": "tsx src/lib/queue/workers/runExtractionWorker.ts",
+    "worker:nudge": "tsx src/lib/queue/workers/runNudgeWorker.ts",
+    "worker:digest": "tsx src/lib/queue/workers/runDigestWorker.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1032.0",
     "@hookform/resolvers": "^5.2.2",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.103.3",
@@ -27,11 +33,13 @@
     "react-icons": "^5.6.0",
     "recharts": "^3.8.1",
     "sonner": "^2.0.7",
+    "stripe": "^22.0.2",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^4.3.6",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

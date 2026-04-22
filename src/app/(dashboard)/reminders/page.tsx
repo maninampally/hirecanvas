@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   createReminder,
   deleteReminder,
@@ -14,8 +14,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { TableSkeletonRows } from '@/components/ui/table-skeleton-rows'
 import { toast } from 'sonner'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 type Reminder = {
   id: string
@@ -38,12 +40,11 @@ function isOverdue(reminder: Reminder) {
 }
 
 export default function RemindersPage() {
-  const [items, setItems] = useState<Reminder[]>([])
+  const queryClient = useQueryClient()
   const [showCompleted, setShowCompleted] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<ReminderFormData>(initialForm)
-  const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
@@ -51,22 +52,81 @@ export default function RemindersPage() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [pendingToggleId, setPendingToggleId] = useState<string | null>(null)
 
-  async function loadData(includeCompleted: boolean) {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const data = await getReminders(includeCompleted)
-      setItems((data || []) as Reminder[])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load reminders')
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const queryKey = ['reminders', showCompleted]
 
-  useEffect(() => {
-    loadData(showCompleted)
-  }, [showCompleted])
+  const remindersQuery = useQuery({
+    queryKey,
+    queryFn: async () => (await getReminders(showCompleted)) as Reminder[],
+  })
+
+  const items = remindersQuery.data || []
+  const isLoading = remindersQuery.isLoading
+
+  const createMutation = useMutation({
+    mutationFn: async (payload: ReminderFormData) => (await createReminder(payload)) as Reminder,
+    onSuccess: async (created) => {
+      queryClient.setQueryData<Reminder[]>(queryKey, (prev = []) =>
+        [...prev, created].sort((a, b) => a.due_date.localeCompare(b.due_date))
+      )
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: ReminderFormData }) =>
+      (await updateReminder(id, payload)) as Reminder,
+    onSuccess: async (updated) => {
+      queryClient.setQueryData<Reminder[]>(queryKey, (prev = []) =>
+        prev.map((item) => (item.id === updated.id ? updated : item))
+      )
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => deleteReminder(id),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<Reminder[]>(queryKey)
+      queryClient.setQueryData<Reminder[]>(queryKey, (prev = []) =>
+        prev.filter((item) => item.id !== id)
+      )
+      return { previous }
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous)
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, completed }: { id: string; completed: boolean }) =>
+      (await toggleReminderComplete(id, completed)) as Reminder,
+    onMutate: async ({ id, completed }) => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<Reminder[]>(queryKey)
+      queryClient.setQueryData<Reminder[]>(queryKey, (prev = []) =>
+        prev.map((item) =>
+          item.id === id
+            ? { ...item, completed_at: completed ? new Date().toISOString() : null }
+            : item
+        )
+      )
+      return { previous }
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous)
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -89,12 +149,16 @@ export default function RemindersPage() {
     try {
       let saved: Reminder
       if (editingId) {
-        saved = (await updateReminder(editingId, form)) as Reminder
-        setItems((prev) => prev.map((item) => (item.id === editingId ? saved : item)))
+        saved = await updateMutation.mutateAsync({ id: editingId, payload: form })
+        queryClient.setQueryData<Reminder[]>(queryKey, (prev = []) =>
+          prev.map((item) => (item.id === editingId ? saved : item))
+        )
         toast.success('Reminder updated')
       } else {
-        saved = (await createReminder(form)) as Reminder
-        setItems((prev) => [...prev, saved].sort((a, b) => a.due_date.localeCompare(b.due_date)))
+        saved = await createMutation.mutateAsync(form)
+        queryClient.setQueryData<Reminder[]>(queryKey, (prev = []) =>
+          [...prev, saved].sort((a, b) => a.due_date.localeCompare(b.due_date))
+        )
         toast.success('Reminder created')
       }
 
@@ -124,14 +188,10 @@ export default function RemindersPage() {
     setConfirmDeleteId(null)
     setPendingDeleteId(id)
     setError(null)
-    const previous = items
-    setItems((prev) => prev.filter((item) => item.id !== id))
-
     try {
-      await deleteReminder(id)
+      await deleteMutation.mutateAsync(id)
       toast.success('Reminder deleted')
     } catch (err) {
-      setItems(previous)
       toast.error('Unable to delete reminder')
       setError(err instanceof Error ? err.message : 'Failed to delete reminder')
     } finally {
@@ -142,23 +202,10 @@ export default function RemindersPage() {
   async function handleToggleComplete(id: string, completed: boolean) {
     setPendingToggleId(id)
     setError(null)
-    const previous = items
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              completed_at: completed ? new Date().toISOString() : null,
-            }
-          : item
-      )
-    )
-
     try {
-      await toggleReminderComplete(id, completed)
+      await toggleMutation.mutateAsync({ id, completed })
       toast.success(completed ? 'Marked as complete' : 'Marked as incomplete')
     } catch (err) {
-      setItems(previous)
       toast.error('Unable to update reminder status')
       setError(err instanceof Error ? err.message : 'Failed to update reminder status')
     } finally {
@@ -223,7 +270,7 @@ export default function RemindersPage() {
                 />
               </div>
 
-              <select
+              <Select
                 value={form.type || 'Follow Up'}
                 onChange={(e) =>
                   setForm((prev) => ({
@@ -231,13 +278,12 @@ export default function RemindersPage() {
                     type: e.target.value as ReminderType,
                   }))
                 }
-                className="px-4 py-2 border border-slate-200 rounded-lg"
               >
                 <option value="Follow Up">Follow Up</option>
                 <option value="Apply Deadline">Apply Deadline</option>
                 <option value="Interview Prep">Interview Prep</option>
                 <option value="Other">Other</option>
-              </select>
+              </Select>
 
               <textarea
                 value={form.notes || ''}

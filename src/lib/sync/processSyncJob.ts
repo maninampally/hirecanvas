@@ -1,5 +1,6 @@
-import { getGmailMessage, listGmailMessages } from '@/lib/gmail/client'
-import { parseJobSignal } from '@/lib/gmail/parser'
+import { extractGmailMessageBody, getGmailMessage, listGmailMessageRefsForSync } from '@/lib/gmail/client'
+import { inferEmailDirection, parseJobSignal } from '@/lib/gmail/parser'
+import { getValidGmailAccessToken } from '@/lib/gmail/token'
 import { enqueueExtractionJob } from '@/lib/queue/extractionQueue'
 import { type SyncJobPayload } from '@/lib/queue/syncQueue'
 import { recordAuditEvent } from '@/lib/security/audit'
@@ -53,28 +54,28 @@ async function updateSyncStatus(
     .eq('id', statusRowId)
 }
 
+function getEmailFromIdToken(idTokenEncrypted?: string | null) {
+  if (!idTokenEncrypted) return null
+  try {
+    const token = decryptSecret(idTokenEncrypted)
+    const payload = token.split('.')[1]
+    if (!payload) return null
+    const decoded = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const parsed = JSON.parse(Buffer.from(decoded, 'base64').toString('utf8')) as { email?: string }
+    return parsed.email || null
+  } catch {
+    return null
+  }
+}
+
 export async function processSyncJob(payload: SyncJobPayload) {
   const supabase = createServiceClient()
   const statusRow = await getLatestSyncStatusRow(payload.userId)
 
   try {
-    const { data: tokenRow, error: tokenError } = await supabase
-      .from('oauth_tokens')
-      .select('access_token_encrypted,is_revoked')
-      .eq('user_id', payload.userId)
-      .eq('provider', 'google_gmail')
-      .single<{
-        access_token_encrypted: string
-        is_revoked: boolean
-      }>()
-
-    if (tokenError || !tokenRow || tokenRow.is_revoked) {
-      throw new Error('No active Gmail connection found for sync')
-    }
-
-    const accessToken = decryptSecret(tokenRow.access_token_encrypted)
-    const listResponse = await listGmailMessages(accessToken)
-    const messageRefs = listResponse.messages || []
+    const { accessToken, idTokenEncrypted } = await getValidGmailAccessToken(payload.userId)
+    const userEmail = getEmailFromIdToken(idTokenEncrypted)
+    const messageRefs = await listGmailMessageRefsForSync(accessToken)
 
     if (statusRow) {
       await updateSyncStatus(statusRow.id, {
@@ -105,49 +106,100 @@ export async function processSyncJob(payload: SyncJobPayload) {
       const message = await getGmailMessage(accessToken, messageRef.id)
       const fromAddress = getHeaderValue(message.payload?.headers, 'From')
       const subject = getHeaderValue(message.payload?.headers, 'Subject')
+      const body = extractGmailMessageBody(message)
+      const receivedAtIso = message.internalDate
+        ? new Date(Number(message.internalDate)).toISOString()
+        : new Date().toISOString()
+      const appliedDate = receivedAtIso.slice(0, 10)
       const signal = parseJobSignal({ from: fromAddress, subject })
+      const emailDirection = inferEmailDirection({ from: fromAddress, userEmail })
+      const inferredStatus = emailDirection === 'outbound' ? 'Applied' : signal.inferredStatus
 
       let createdJobId: string | null = null
 
       if (signal.company && signal.subject) {
-        const { data: createdJob } = await supabase
+        const { data: existingJob } = await supabase
           .from('jobs')
-          .insert({
-            user_id: payload.userId,
-            title: signal.subject.slice(0, 180),
-            company: signal.company,
-            status: signal.inferredStatus || 'Applied',
-            source: 'gmail_sync',
-            notes: `Imported from Gmail message ${message.id}`,
-            updated_at: new Date().toISOString(),
-          })
-          .select('id')
-          .single<{ id: string }>()
+          .select('id,status')
+          .eq('user_id', payload.userId)
+          .ilike('company', signal.company)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle<{ id: string; status: string }>()
 
-        if (createdJob?.id) {
-          createdJobId = createdJob.id
-          newJobsFound += 1
+        if (existingJob?.id) {
+          createdJobId = existingJob.id
 
+          if (inferredStatus && existingJob.status !== inferredStatus) {
+            await supabase
+              .from('jobs')
+              .update({
+                status: inferredStatus,
+                ai_confidence_score: 72,
+                last_contacted_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingJob.id)
+              .eq('user_id', payload.userId)
+
+            await supabase.from('job_status_timeline').insert({
+              job_id: existingJob.id,
+              status: inferredStatus,
+              changed_at: new Date().toISOString(),
+              notes:
+                emailDirection === 'outbound'
+                  ? 'Marked Applied from outbound email'
+                  : 'Auto-detected from inbound Gmail subject signal',
+              ai_confidence_score: 72,
+              requires_review: false,
+            })
+          }
+        } else {
+          const { data: createdJob } = await supabase
+            .from('jobs')
+            .insert({
+              user_id: payload.userId,
+              title: signal.subject.slice(0, 180),
+              company: signal.company,
+              status: inferredStatus || 'Applied',
+              source: 'gmail_sync',
+              notes: `Imported from Gmail message ${message.id}`,
+              applied_date: appliedDate,
+              updated_at: new Date().toISOString(),
+            })
+            .select('id')
+            .single<{ id: string }>()
+
+          if (createdJob?.id) {
+            createdJobId = createdJob.id
+            newJobsFound += 1
+          }
+        }
+
+        if (createdJobId) {
           await supabase.from('job_emails').insert({
-            job_id: createdJob.id,
+            job_id: createdJobId,
             gmail_message_id: message.id,
             from_address: fromAddress || 'unknown',
+            email_direction: emailDirection,
             subject: subject || '(no subject)',
             snippet: message.snippet || null,
-            received_at: message.internalDate
-              ? new Date(Number(message.internalDate)).toISOString()
-              : new Date().toISOString(),
+            body,
+            received_at: receivedAtIso,
             extracted_data: {
               company: signal.company,
-              inferredStatus: signal.inferredStatus,
+              inferredStatus,
+              emailDirection,
             },
           })
 
-          await enqueueExtractionJob({
-            userId: payload.userId,
-            emailId: message.id,
-            jobId: createdJob.id,
-          })
+          if (emailDirection !== 'outbound') {
+            await enqueueExtractionJob({
+              userId: payload.userId,
+              emailId: message.id,
+              jobId: createdJobId,
+            })
+          }
         }
       }
 
