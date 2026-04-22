@@ -8,6 +8,9 @@ type GoogleIdTokenClaims = {
   sub?: string
 }
 
+const BASE64_PADDING_BLOCK_SIZE = 4
+const PROVIDER_SUB_PREFIX = 'sub:'
+
 function redirectWithParams(pathname: string, params: Record<string, string>) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const url = new URL(pathname, baseUrl)
@@ -25,8 +28,8 @@ function parseGoogleIdTokenClaims(idToken?: string | null): GoogleIdTokenClaims 
     if (!payload) return null
 
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const remainder = base64.length % 4
-    const padding = remainder === 0 ? '' : '='.repeat(4 - remainder)
+    const remainder = base64.length % BASE64_PADDING_BLOCK_SIZE
+    const padding = remainder === 0 ? '' : '='.repeat(BASE64_PADDING_BLOCK_SIZE - remainder)
     return JSON.parse(Buffer.from(`${base64}${padding}`, 'base64').toString('utf8')) as GoogleIdTokenClaims
   } catch {
     return null
@@ -73,7 +76,7 @@ export async function GET(request: NextRequest) {
     const idTokenClaims = parseGoogleIdTokenClaims(tokens.id_token)
     const providerEmail =
       idTokenClaims?.email?.trim().toLowerCase() ||
-      (idTokenClaims?.sub ? `sub:${idTokenClaims.sub}` : null)
+      (idTokenClaims?.sub ? `${PROVIDER_SUB_PREFIX}${idTokenClaims.sub}` : null)
 
     if (!providerEmail) {
       throw new Error('Failed to retrieve Google account identity from ID token. Please try again.')

@@ -4,6 +4,7 @@
 ALTER TABLE public.oauth_tokens
 ADD COLUMN IF NOT EXISTS provider_email TEXT;
 
+-- `oauth_tokens.user_id` is already indexed by `idx_oauth_tokens_user_id` from migration 012.
 -- Backfill from auth.users email where available.
 UPDATE public.oauth_tokens AS t
 SET provider_email = lower(nullif(u.email, ''))
