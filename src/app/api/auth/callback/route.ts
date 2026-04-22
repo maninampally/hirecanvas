@@ -3,6 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 import { exchangeCodeForTokens } from '@/lib/gmail/oauth'
 import { encryptSecret } from '@/lib/security/encryption'
 
+type GoogleIdTokenClaims = {
+  email?: string
+  sub?: string
+}
+
 function redirectWithParams(pathname: string, params: Record<string, string>) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const url = new URL(pathname, baseUrl)
@@ -10,6 +15,21 @@ function redirectWithParams(pathname: string, params: Record<string, string>) {
     url.searchParams.set(key, value)
   })
   return url
+}
+
+function parseGoogleIdTokenClaims(idToken?: string | null): GoogleIdTokenClaims | null {
+  if (!idToken) return null
+
+  try {
+    const payload = idToken.split('.')[1]
+    if (!payload) return null
+
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padding = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4))
+    return JSON.parse(Buffer.from(`${base64}${padding}`, 'base64').toString('utf8')) as GoogleIdTokenClaims
+  } catch {
+    return null
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -49,10 +69,19 @@ export async function GET(request: NextRequest) {
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null
 
+    const idTokenClaims = parseGoogleIdTokenClaims(tokens.id_token)
+    const providerEmail =
+      idTokenClaims?.email?.trim().toLowerCase() ||
+      (idTokenClaims?.sub ? `sub:${idTokenClaims.sub}` : null)
+
+    if (!providerEmail) {
+      throw new Error('Unable to determine Google account identity. Please reconnect Gmail.')
+    }
     const { error } = await supabase.from('oauth_tokens').upsert(
       {
         user_id: user.id,
         provider: 'google_gmail',
+        provider_email: providerEmail,
         access_token_encrypted: encryptSecret(tokens.access_token),
         refresh_token_encrypted: tokens.refresh_token
           ? encryptSecret(tokens.refresh_token)
@@ -64,7 +93,7 @@ export async function GET(request: NextRequest) {
         updated_at: new Date().toISOString(),
       },
       {
-        onConflict: 'user_id,provider',
+        onConflict: 'user_id,provider,provider_email',
       }
     )
 
