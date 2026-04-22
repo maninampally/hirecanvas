@@ -2,6 +2,20 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
+type BillingEventRow = {
+  user_id: string | null
+  event_type: string
+  amount_cents: number | null
+  status: string | null
+  stripe_subscription_id: string | null
+  created_at: string
+}
+
+function isMissingRelationError(error: { code?: string; message?: string } | null) {
+  if (!error) return false
+  return error.code === '42P01' || error.message?.toLowerCase().includes('relation') || error.message?.toLowerCase().includes('does not exist')
+}
+
 export async function GET() {
   const supabase = await createClient()
   const {
@@ -30,6 +44,7 @@ export async function GET() {
     eliteCount,
     activeSyncCount,
     aiUsageRows,
+    billingEventRows,
     recentAuditRows,
     recentSyncRows,
   ] = await Promise.all([
@@ -41,6 +56,7 @@ export async function GET() {
       .select('id', { count: 'exact', head: true })
       .eq('status', 'in_progress'),
     service.from('ai_usage').select('tokens_used,cost_cents').limit(500),
+    service.from('billing_events').select('user_id,event_type,amount_cents,status,stripe_subscription_id,created_at').limit(2000),
     service
       .from('audit_log')
       .select('id,event_type,action,user_id,created_at')
@@ -57,6 +73,57 @@ export async function GET() {
   const totalAiCostCents = usageRows.reduce((sum, row) => sum + (row.cost_cents || 0), 0)
   const totalAiTokens = usageRows.reduce((sum, row) => sum + (row.tokens_used || 0), 0)
 
+  const events = (!billingEventRows.error || isMissingRelationError(billingEventRows.error)
+    ? billingEventRows.data || []
+    : []) as BillingEventRow[]
+
+  const activeSubscriptions = new Map<string, BillingEventRow>()
+  const firstCreatedAtBySubscription = new Map<string, number>()
+
+  for (const event of events) {
+    const subscriptionId = event.stripe_subscription_id
+    if (subscriptionId) {
+      const eventTs = new Date(event.created_at).getTime()
+      const firstSeen = firstCreatedAtBySubscription.get(subscriptionId)
+      if (!firstSeen || eventTs < firstSeen) {
+        firstCreatedAtBySubscription.set(subscriptionId, eventTs)
+      }
+
+      if (event.event_type === 'customer.subscription.deleted' || event.status === 'canceled' || event.status === 'incomplete_expired') {
+        activeSubscriptions.delete(subscriptionId)
+      } else if (event.event_type === 'customer.subscription.updated' || event.event_type === 'checkout.session.completed') {
+        activeSubscriptions.set(subscriptionId, event)
+      }
+    }
+  }
+
+  let mrrCents = 0
+  for (const activeEvent of activeSubscriptions.values()) {
+    mrrCents += activeEvent.amount_cents || 0
+  }
+
+  const totalStartedSubs = firstCreatedAtBySubscription.size
+  const activeSubs = activeSubscriptions.size
+  const churnRatePercent = totalStartedSubs > 0
+    ? Number((((totalStartedSubs - activeSubs) / totalStartedSubs) * 100).toFixed(2))
+    : 0
+
+  const avgRevenuePerUserCents = activeSubs > 0 ? Math.round(mrrCents / activeSubs) : 0
+  const subscriptionAgesInMonths = [...firstCreatedAtBySubscription.values()].map((ts) => {
+    const now = Date.now()
+    const months = (now - ts) / (1000 * 60 * 60 * 24 * 30)
+    return Math.max(0, months)
+  })
+  const avgSubscriptionDurationMonths = subscriptionAgesInMonths.length > 0
+    ? subscriptionAgesInMonths.reduce((sum, value) => sum + value, 0) / subscriptionAgesInMonths.length
+    : 0
+  const ltvCents = Math.round(avgRevenuePerUserCents * avgSubscriptionDurationMonths)
+
+  const infraEstimateCents = Number(process.env.MONTHLY_INFRA_ESTIMATE_CENTS || '5000')
+  const netMarginPercent = mrrCents > 0
+    ? Number((((mrrCents - totalAiCostCents - infraEstimateCents) / mrrCents) * 100).toFixed(2))
+    : 0
+
   return NextResponse.json({
     metrics: {
       totalUsers: usersCount.count || 0,
@@ -65,6 +132,12 @@ export async function GET() {
       activeSyncJobs: activeSyncCount.count || 0,
       totalAiCostCents,
       totalAiTokens,
+      mrrCents,
+      activeSubscriptions: activeSubs,
+      churnRatePercent,
+      ltvCents,
+      infraEstimateCents,
+      netMarginPercent,
     },
     recentAudit: recentAuditRows.data || [],
     recentSync: recentSyncRows.data || [],
