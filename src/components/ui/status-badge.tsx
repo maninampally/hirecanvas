@@ -31,7 +31,7 @@ export function StatusDropdown({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="px-3 py-2 border border-slate-200 rounded-lg bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+      className="px-3 py-2 border border-slate-200 rounded-lg bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
     >
       <option value="Wishlist">Wishlist</option>
       <option value="Applied">Applied</option>
