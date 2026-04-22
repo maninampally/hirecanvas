@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import {
   deleteResume,
   getResumeDownloadUrl,
@@ -9,6 +10,7 @@ import {
   uploadResume,
   type ResumeItem,
 } from '@/actions/resumes'
+import { ATSChecker } from '@/components/resumes/ATSChecker'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -37,7 +39,11 @@ export default function ResumesPage() {
   }
 
   useEffect(() => {
-    void loadResumes()
+    const timer = setTimeout(() => {
+      void loadResumes()
+    }, 0)
+
+    return () => clearTimeout(timer)
   }, [])
 
   async function handleUpload(file: File) {
@@ -134,7 +140,13 @@ export default function ResumesPage() {
           <h1 className="text-3xl font-bold text-slate-900">Resumes</h1>
           <p className="text-slate-600 mt-1">Upload and manage your resumes</p>
         </div>
-        <>
+        <div className="flex items-center gap-2">
+          <a href="#ats-checker">
+            <Button variant="outline">ATS Checker</Button>
+          </a>
+          <Link href="/resumes/cover-letter">
+            <Button variant="outline">AI Cover Letter</Button>
+          </Link>
           <input
             ref={uploadInputRef}
             type="file"
@@ -150,7 +162,7 @@ export default function ResumesPage() {
           <Button onClick={() => uploadInputRef.current?.click()} disabled={isUploading}>
             {isUploading ? 'Uploading...' : '+ Upload Resume'}
           </Button>
-        </>
+        </div>
       </div>
 
       {error && (
@@ -245,6 +257,10 @@ export default function ResumesPage() {
           if (confirmDeleteId) void handleDelete(confirmDeleteId)
         }}
       />
+
+      <div id="ats-checker">
+        <ATSChecker />
+      </div>
     </div>
   )
 }
