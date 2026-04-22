@@ -1,6 +1,6 @@
 import { extractGmailMessageBody, getGmailMessage, listGmailMessageRefsForSync } from '@/lib/gmail/client'
 import { inferEmailDirection, parseJobSignal } from '@/lib/gmail/parser'
-import { getValidGmailAccessToken } from '@/lib/gmail/token'
+import { getAllValidGmailAccessTokens } from '@/lib/gmail/token'
 import { enqueueExtractionJob } from '@/lib/queue/extractionQueue'
 import { type SyncJobPayload } from '@/lib/queue/syncQueue'
 import { recordAuditEvent } from '@/lib/security/audit'
@@ -73,14 +73,14 @@ export async function processSyncJob(payload: SyncJobPayload) {
   const statusRow = await getLatestSyncStatusRow(payload.userId)
 
   try {
-    const { accessToken, idTokenEncrypted } = await getValidGmailAccessToken(payload.userId)
-    const userEmail = getEmailFromIdToken(idTokenEncrypted)
-    const messageRefs = await listGmailMessageRefsForSync(accessToken)
+    const allTokens = await getAllValidGmailAccessTokens(payload.userId)
+    if (allTokens.length === 0) {
+      throw new Error('No valid Gmail connections found. Please connect an account.')
+    }
 
     if (statusRow) {
       await updateSyncStatus(statusRow.id, {
         status: 'in_progress',
-        total_emails: messageRefs.length,
         processed_count: 0,
         new_jobs_found: 0,
         error_message: null,
@@ -89,8 +89,37 @@ export async function processSyncJob(payload: SyncJobPayload) {
 
     let processedCount = 0
     let newJobsFound = 0
+    let totalEmails = 0
 
-    for (const messageRef of messageRefs) {
+    for (const tokenData of allTokens) {
+      const { accessToken, idTokenEncrypted } = tokenData
+      const userEmail = getEmailFromIdToken(idTokenEncrypted)
+      
+      let messageRefs: Array<{ id: string }> = []
+      try {
+        messageRefs = await listGmailMessageRefsForSync(accessToken)
+      } catch (err) {
+        console.error(`Failed to list messages for connection ${tokenData.tokenId}:`, err)
+        await recordAuditEvent({
+          userId: payload.userId,
+          eventType: 'sync_account_failed',
+          action: 'sync_process',
+          resourceType: 'oauth_tokens',
+          resourceId: tokenData.tokenId,
+          newValues: {
+            email: userEmail,
+            error: err instanceof Error ? err.message : 'unknown',
+          },
+        })
+        continue
+      }
+
+      totalEmails += messageRefs.length
+      if (statusRow) {
+        await updateSyncStatus(statusRow.id, { total_emails: totalEmails })
+      }
+
+      for (const messageRef of messageRefs) {
       const { data: alreadyProcessed } = await supabase
         .from('processed_emails')
         .select('id')
@@ -212,7 +241,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
 
       processedCount += 1
 
-      if (statusRow && (processedCount === messageRefs.length || processedCount % 5 === 0)) {
+      if (statusRow && (processedCount === totalEmails || processedCount % 5 === 0)) {
         await updateSyncStatus(statusRow.id, {
           processed_count: processedCount,
           new_jobs_found: newJobsFound,
@@ -221,6 +250,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
 
       void createdJobId
     }
+  }
 
     if (statusRow) {
       await updateSyncStatus(statusRow.id, {
