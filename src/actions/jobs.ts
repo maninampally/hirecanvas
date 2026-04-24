@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { decryptOrReturnPlainText } from '@/lib/security/encryption'
 import { jobSchema, JobFormData } from '@/lib/validations/jobs'
 import { sanitizeSearchInput, isMissingRelationError } from '@/lib/utils'
 import { updateStreakOnJobActivity } from '@/actions/dashboard'
@@ -111,6 +112,24 @@ function formatSalaryDisplay(row: Record<string, unknown>) {
   if (max !== null) return `${currency} ${max.toLocaleString()}`
   if (min !== null) return `${currency} ${min.toLocaleString()}`
   return undefined
+}
+
+/** PostgREST: plain gte/lte on applied_date hides NULLs; include undated jobs so list matches user expectations. */
+function withAppliedDateOrNull<
+  T extends { or: (s: string) => T },
+>(query: T, filters?: { appliedFrom?: string; appliedTo?: string }): T {
+  const from = filters?.appliedFrom?.trim()
+  const to = filters?.appliedTo?.trim()
+  if (from && to) {
+    return query.or(`applied_date.is.null,and(applied_date.gte.${from},applied_date.lte.${to})`)
+  }
+  if (from) {
+    return query.or(`applied_date.is.null,applied_date.gte.${from}`)
+  }
+  if (to) {
+    return query.or(`applied_date.is.null,applied_date.lte.${to}`)
+  }
+  return query
 }
 
 async function ensureAppUserExists(user: { id: string; user_metadata?: Record<string, unknown> | null }) {
@@ -282,12 +301,7 @@ export async function getJobs(
     const searchValue = sanitizeSearchInput(filters.search)
     if (searchValue) query = query.or(`title.ilike.%${searchValue}%,company.ilike.%${searchValue}%`)
   }
-  if (filters?.appliedFrom) {
-    query = query.gte('applied_date', filters.appliedFrom)
-  }
-  if (filters?.appliedTo) {
-    query = query.lte('applied_date', filters.appliedTo)
-  }
+  query = withAppliedDateOrNull(query, filters)
 
   const { error, data } = await query
 
@@ -316,12 +330,7 @@ export async function getJobs(
       const sv = sanitizeSearchInput(filters.search)
       if (sv) fq = fq.or(`title.ilike.%${sv}%,company.ilike.%${sv}%`)
     }
-    if (filters?.appliedFrom) {
-      fq = fq.gte('applied_date', filters.appliedFrom)
-    }
-    if (filters?.appliedTo) {
-      fq = fq.lte('applied_date', filters.appliedTo)
-    }
+    fq = withAppliedDateOrNull(fq, filters)
 
     const fb = await fq
     if (fb.error) {
@@ -593,8 +602,10 @@ export async function getJobEmails(jobId: string) {
     }
     throw error
   }
-
-  return (data || []) as JobEmailEntry[]
+  return ((data || []) as JobEmailEntry[]).map((item) => ({
+    ...item,
+    body: decryptOrReturnPlainText(item.body),
+  }))
 }
 
 export async function archiveJob(jobId: string) {

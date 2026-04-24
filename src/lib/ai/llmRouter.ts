@@ -8,8 +8,8 @@ import { runGemini } from '@/lib/ai/gemini'
 export type AIProvider = 'gemini' | 'claude' | 'openai'
 export type RoutedProvider = AIProvider | 'regex_fallback'
 
-const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'claude', 'openai']
-const COOLDOWN_MS = 6 * 60 * 60 * 1000
+const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'openai', 'claude'] // cheapest → most expensive
+const COOLDOWN_MS = 25 * 1000 // 25 seconds — Gemini rate limits reset in ~20s
 
 export type LLMRouterInput = {
   prompt: string
