@@ -14,6 +14,8 @@ import { MdAdd, MdUploadFile, MdMoreHoriz, MdDownload, MdOpenInNew } from 'react
 
 interface JobsTableProps {
   initialOpenJobId?: string | null
+  /** Opens the real “Add job” form on the page (empty-state button). */
+  onRequestAddJob?: () => void
   filters?: {
     status?: string
     statuses?: string[]
@@ -25,7 +27,7 @@ interface JobsTableProps {
   }
 }
 
-export function JobsTable({ initialOpenJobId, filters }: JobsTableProps) {
+export function JobsTable({ initialOpenJobId, onRequestAddJob, filters }: JobsTableProps) {
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(initialOpenJobId || null)
@@ -56,7 +58,15 @@ export function JobsTable({ initialOpenJobId, filters }: JobsTableProps) {
     queryFn: async () => (await getJobs(filters)) as Job[],
   })
 
-  const jobs = useMemo(() => jobsQuery.data || [], [jobsQuery.data])
+  const jobs = useMemo(() => {
+    const rows = [...(jobsQuery.data || [])]
+    rows.sort((a, b) => {
+      const aTime = new Date(a.applied_date || a.created_at || a.updated_at).getTime()
+      const bTime = new Date(b.applied_date || b.created_at || b.updated_at).getTime()
+      return bTime - aTime
+    })
+    return rows
+  }, [jobsQuery.data])
 
   const selectedJob = selectedJobId ? jobs.find((job) => job.id === selectedJobId) || null : null
 
@@ -208,15 +218,61 @@ export function JobsTable({ initialOpenJobId, filters }: JobsTableProps) {
   }
 
   const queryError = jobsQuery.error instanceof Error ? jobsQuery.error.message : null
+  const hasListFilters =
+    Boolean(filters?.appliedFrom || filters?.appliedTo) ||
+    Boolean(filters?.statuses?.length) ||
+    Boolean(filters?.status) ||
+    Boolean(filters?.search)
+
+  const drawer = (
+    <JobDetailDrawer
+      key={`${selectedJobId || 'no-selection'}:${openInEditMode ? 'edit' : 'view'}`}
+      job={selectedJob}
+      isOpen={isDrawerOpen}
+      startInEditMode={openInEditMode}
+      onClose={() => {
+        setIsDrawerOpen(false)
+        setSelectedJobId(null)
+        setOpenInEditMode(false)
+      }}
+      onJobUpdated={() => {
+        void queryClient.invalidateQueries({ queryKey })
+      }}
+    />
+  )
 
   if (jobs.length === 0) {
     return (
-      <Card>
-        <div className="p-12 text-center">
-          <p className="text-slate-600 mb-4">No jobs yet. Add your first application!</p>
-          <Button onClick={() => setIsDrawerOpen(true)}>Add Job</Button>
-        </div>
-      </Card>
+      <>
+        <Card>
+          <div className="p-12 text-center space-y-4">
+            {queryError ? (
+              <p className="text-rose-700 text-sm">{queryError}</p>
+            ) : (
+              <>
+                <p className="text-slate-600">
+                  {hasListFilters
+                    ? 'No jobs match the current filters. Try clearing the applied date range or status chips.'
+                    : 'No jobs yet. Add an application manually, or run a Gmail sync from Settings (sync + extraction workers must be running).'}
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (onRequestAddJob) {
+                      onRequestAddJob()
+                      return
+                    }
+                    toast.info('Use “+ Add Job” at the top of this page to create an application.')
+                  }}
+                >
+                  Add job
+                </Button>
+              </>
+            )}
+          </div>
+        </Card>
+        {drawer}
+      </>
     )
   }
 
@@ -411,20 +467,7 @@ export function JobsTable({ initialOpenJobId, filters }: JobsTableProps) {
         </div>
       )}
 
-      <JobDetailDrawer
-        key={`${selectedJobId || 'no-selection'}:${openInEditMode ? 'edit' : 'view'}`}
-        job={selectedJob}
-        isOpen={isDrawerOpen}
-        startInEditMode={openInEditMode}
-        onClose={() => {
-          setIsDrawerOpen(false)
-          setSelectedJobId(null)
-          setOpenInEditMode(false)
-        }}
-        onJobUpdated={() => {
-          void queryClient.invalidateQueries({ queryKey })
-        }}
-      />
+      {drawer}
     </>
   )
 }

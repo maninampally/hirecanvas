@@ -27,15 +27,19 @@ export function useSyncStatus(userId?: string) {
       }
     }
 
+    const refreshStatus = async () => {
+      const response = await fetch('/api/sync/status')
+      if (!response.ok) return
+
+      const data = (await response.json()) as { status: SyncStatus | null }
+      if (mounted) {
+        setStatus(data.status)
+      }
+    }
+
     const loadInitial = async () => {
       try {
-        const response = await fetch('/api/sync/status')
-        if (!response.ok) return
-
-        const data = (await response.json()) as { status: SyncStatus | null }
-        if (mounted) {
-          setStatus(data.status)
-        }
+        await refreshStatus()
       } finally {
         if (mounted) setLoadedUserId(userId)
       }
@@ -43,8 +47,9 @@ export function useSyncStatus(userId?: string) {
 
     void loadInitial()
 
+    const channelName = `sync-status-${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const channel = supabase
-      .channel(`sync-status-${userId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
@@ -65,8 +70,13 @@ export function useSyncStatus(userId?: string) {
       )
       .subscribe()
 
+    const pollId = setInterval(() => {
+      void refreshStatus()
+    }, 5000)
+
     return () => {
       mounted = false
+      clearInterval(pollId)
       void supabase.removeChannel(channel)
     }
   }, [supabase, userId])

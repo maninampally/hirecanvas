@@ -1,6 +1,18 @@
-import { extractGmailMessageBody, getGmailMessage, listGmailMessageRefsForSync } from '@/lib/gmail/client'
-import { inferEmailDirection, parseJobSignal } from '@/lib/gmail/parser'
+import { createHash } from 'crypto'
+import {
+  buildSyncQueryWithLocalDateRange,
+  extractGmailMessageBody,
+  getGmailMessage,
+  getGmailProfile,
+  getGmailSyncListConfig,
+  listGmailMessageRefsForSync,
+  listGmailMessageRefsFromHistory,
+} from '@/lib/gmail/client'
+import { inferEmailDirection } from '@/lib/gmail/parser'
 import { getAllValidGmailAccessTokens } from '@/lib/gmail/token'
+import { processExtractionJob } from '@/lib/extraction/processExtractionJob'
+import { shouldFastSkip } from '@/lib/extraction/fastSkip'
+import { markAutoRejected } from '@/lib/extraction/upsert'
 import { enqueueExtractionJob } from '@/lib/queue/extractionQueue'
 import { type SyncJobPayload } from '@/lib/queue/syncQueue'
 import { recordAuditEvent } from '@/lib/security/audit'
@@ -10,7 +22,10 @@ import { createServiceClient } from '@/lib/supabase/service'
 
 type SyncStatusRow = {
   id: string
+  started_at: string | null
 }
+
+const SYNC_MESSAGE_FETCH_CHUNK = 10
 
 function getHeaderValue(
   headers: Array<{ name: string; value: string }> | undefined,
@@ -19,16 +34,21 @@ function getHeaderValue(
   return headers?.find((header) => header.name.toLowerCase() === name.toLowerCase())?.value || ''
 }
 
+function hashEmailContent(fromAddress: string, subject: string, body: string) {
+  return createHash('sha256')
+    .update(`${fromAddress.toLowerCase()}|${subject.trim().toLowerCase()}|${body.slice(0, 500)}`)
+    .digest('hex')
+}
+
 async function getLatestSyncStatusRow(userId: string) {
   const supabase = createServiceClient()
   const { data } = await supabase
     .from('sync_status')
-    .select('id')
+    .select('id,started_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle<SyncStatusRow>()
-
   return data
 }
 
@@ -71,6 +91,7 @@ function getEmailFromIdToken(idTokenEncrypted?: string | null) {
 export async function processSyncJob(payload: SyncJobPayload) {
   const supabase = createServiceClient()
   const statusRow = await getLatestSyncStatusRow(payload.userId)
+  const syncStartedAt = statusRow?.started_at || new Date().toISOString()
 
   try {
     const allTokens = await getAllValidGmailAccessTokens(payload.userId)
@@ -84,6 +105,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
         processed_count: 0,
         new_jobs_found: 0,
         error_message: null,
+        started_at: syncStartedAt,
       })
     }
 
@@ -92,12 +114,46 @@ export async function processSyncJob(payload: SyncJobPayload) {
     let totalEmails = 0
 
     for (const tokenData of allTokens) {
-      const { accessToken, idTokenEncrypted } = tokenData
+      const { accessToken, idTokenEncrypted, lastHistoryId } = tokenData
       const userEmail = getEmailFromIdToken(idTokenEncrypted)
-      
+      const hasCustomRange = Boolean(payload.fromDate || payload.toDate)
+      // Use the same tight ATS/job keyword query for range syncs.
+      // The old '-category:{promotions social forums}' fetched every non-promo
+      // email in the date window — potentially thousands of irrelevant messages.
+      const { query: defaultSyncQuery } = getGmailSyncListConfig()
+      const rangeBaseQuery =
+        process.env.GMAIL_SYNC_RANGE_QUERY?.trim() || defaultSyncQuery
+      const customRangeQuery = hasCustomRange
+        ? buildSyncQueryWithLocalDateRange({
+            baseQuery: rangeBaseQuery,
+            fromDate: payload.fromDate,
+            toDate: payload.toDate,
+            timezoneOffsetMinutes: payload.timezoneOffsetMinutes,
+          })
+        : ''
+
       let messageRefs: Array<{ id: string }> = []
       try {
-        messageRefs = await listGmailMessageRefsForSync(accessToken)
+        if (hasCustomRange) {
+          messageRefs = await listGmailMessageRefsForSync(accessToken, {
+            queryOverride: customRangeQuery,
+          })
+        } else if (lastHistoryId) {
+          try {
+            messageRefs = await listGmailMessageRefsFromHistory(accessToken, lastHistoryId)
+          } catch (historyError) {
+            const message = historyError instanceof Error ? historyError.message : 'history_sync_failed'
+            const historyInvalid =
+              message.includes('(404)') || message.toLowerCase().includes('start historyid')
+            if (historyInvalid) {
+              messageRefs = await listGmailMessageRefsForSync(accessToken)
+            } else {
+              throw historyError
+            }
+          }
+        } else {
+          messageRefs = await listGmailMessageRefsForSync(accessToken)
+        }
       } catch (err) {
         console.error(`Failed to list messages for connection ${tokenData.tokenId}:`, err)
         await recordAuditEvent({
@@ -119,138 +175,157 @@ export async function processSyncJob(payload: SyncJobPayload) {
         await updateSyncStatus(statusRow.id, { total_emails: totalEmails })
       }
 
-      for (const messageRef of messageRefs) {
-      const { data: alreadyProcessed } = await supabase
-        .from('processed_emails')
-        .select('id')
-        .eq('user_id', payload.userId)
-        .eq('gmail_message_id', messageRef.id)
-        .maybeSingle<{ id: string }>()
+      const refIds = messageRefs.map((ref) => ref.id)
+      const { data: alreadyRows } = refIds.length
+        ? await supabase
+            .from('processed_emails')
+            .select('gmail_message_id')
+            .eq('user_id', payload.userId)
+            .in('gmail_message_id', refIds)
+        : { data: [] as Array<{ gmail_message_id: string }> }
 
-      if (alreadyProcessed) {
-        processedCount += 1
-        continue
+      const processedSet = new Set((alreadyRows || []).map((row) => row.gmail_message_id))
+      const pendingRefs = payload.force
+        ? messageRefs
+        : messageRefs.filter((ref) => !processedSet.has(ref.id))
+
+      if (!payload.force) {
+        processedCount += messageRefs.length - pendingRefs.length
       }
 
-      const message = await getGmailMessage(accessToken, messageRef.id)
-      const fromAddress = getHeaderValue(message.payload?.headers, 'From')
-      const subject = getHeaderValue(message.payload?.headers, 'Subject')
-      const body = extractGmailMessageBody(message)
-      const receivedAtIso = message.internalDate
-        ? new Date(Number(message.internalDate)).toISOString()
-        : new Date().toISOString()
-      const appliedDate = receivedAtIso.slice(0, 10)
-      const signal = parseJobSignal({ from: fromAddress, subject })
-      const emailDirection = inferEmailDirection({ from: fromAddress, userEmail })
-      const inferredStatus = emailDirection === 'outbound' ? 'Applied' : signal.inferredStatus
+      for (let i = 0; i < pendingRefs.length; i += SYNC_MESSAGE_FETCH_CHUNK) {
+        const chunk = pendingRefs.slice(i, i + SYNC_MESSAGE_FETCH_CHUNK)
 
-      let createdJobId: string | null = null
+        const results = await Promise.all(
+          chunk.map(async (messageRef) => {
+            try {
+              const message = await getGmailMessage(accessToken, messageRef.id)
+              const fromAddress = getHeaderValue(message.payload?.headers, 'From')
+              const subject = getHeaderValue(message.payload?.headers, 'Subject')
+              const body = extractGmailMessageBody(message) || ''
+              const snippet = message.snippet || ''
+              const receivedAtIso = message.internalDate
+                ? new Date(Number(message.internalDate)).toISOString()
+                : new Date().toISOString()
+              const contentHash = hashEmailContent(fromAddress || 'unknown', subject || '', body)
+              const emailDirection = inferEmailDirection({ from: fromAddress, userEmail })
 
-      if (signal.company && signal.subject) {
-        const { data: existingJob } = await supabase
-          .from('jobs')
-          .select('id,status')
-          .eq('user_id', payload.userId)
-          .ilike('company', signal.company)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle<{ id: string; status: string }>()
+              // Skip emails the user sent — cover letters, follow-ups, thank-you notes
+              // all contain job keywords but are outbound, not incoming status updates.
+              if (emailDirection === 'outbound') {
+                await markAutoRejected({
+                  userId: payload.userId,
+                  gmailMessageId: message.id,
+                  fromAddress,
+                  subject,
+                  contentHash,
+                  reason: 'outbound_email',
+                })
+                return { processed: true, createdJob: false }
+              }
 
-        if (existingJob?.id) {
-          createdJobId = existingJob.id
+              // Content-hash dedupe (skip reprocessing identical emails unless forced).
+              const { data: duplicateByContent } = await supabase
+                .from('processed_emails')
+                .select('gmail_message_id')
+                .eq('user_id', payload.userId)
+                .eq('content_hash', contentHash)
+                .neq('gmail_message_id', message.id)
+                .maybeSingle<{ gmail_message_id: string }>()
 
-          if (inferredStatus && existingJob.status !== inferredStatus) {
-            await supabase
-              .from('jobs')
-              .update({
-                status: inferredStatus,
-                ai_confidence_score: 72,
-                last_contacted_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', existingJob.id)
-              .eq('user_id', payload.userId)
+              if (duplicateByContent && !payload.force) {
+                await markAutoRejected({
+                  userId: payload.userId,
+                  gmailMessageId: message.id,
+                  fromAddress,
+                  subject,
+                  contentHash,
+                  reason: 'duplicate_content',
+                })
+                return { processed: true, createdJob: false }
+              }
 
-            await supabase.from('job_status_timeline').insert({
-              job_id: existingJob.id,
-              status: inferredStatus,
-              changed_at: new Date().toISOString(),
-              notes:
-                emailDirection === 'outbound'
-                  ? 'Marked Applied from outbound email'
-                  : 'Auto-detected from inbound Gmail subject signal',
-              ai_confidence_score: 72,
-              requires_review: false,
-            })
-          }
-        } else {
-          const { data: createdJob } = await supabase
-            .from('jobs')
-            .insert({
-              user_id: payload.userId,
-              title: signal.subject.slice(0, 180),
-              company: signal.company,
-              status: inferredStatus || 'Applied',
-              source: 'gmail_sync',
-              notes: `Imported from Gmail message ${message.id}`,
-              applied_date: appliedDate,
-              updated_at: new Date().toISOString(),
-            })
-            .select('id')
-            .single<{ id: string }>()
+              // Fast-skip — cheap regex layer with always-pass override.
+              const fastSkip = shouldFastSkip({ subject, from: fromAddress, snippet })
+              if (fastSkip.skip) {
+                await markAutoRejected({
+                  userId: payload.userId,
+                  gmailMessageId: message.id,
+                  fromAddress,
+                  subject,
+                  contentHash,
+                  reason: fastSkip.reason || 'fast_skip',
+                })
+                return { processed: true, createdJob: false }
+              }
 
-          if (createdJob?.id) {
-            createdJobId = createdJob.id
-            newJobsFound += 1
-          }
-        }
+              const extractionPayload = {
+                userId: payload.userId,
+                email: {
+                  gmailMessageId: message.id,
+                  from: fromAddress,
+                  subject,
+                  snippet,
+                  bodyText: body,
+                  receivedAtIso,
+                  contentHash,
+                  emailDirection,
+                },
+              }
 
-        if (createdJobId) {
-          await supabase.from('job_emails').insert({
-            job_id: createdJobId,
-            gmail_message_id: message.id,
-            from_address: fromAddress || 'unknown',
-            email_direction: emailDirection,
-            subject: subject || '(no subject)',
-            snippet: message.snippet || null,
-            body,
-            received_at: receivedAtIso,
-            extracted_data: {
-              company: signal.company,
-              inferredStatus,
-              emailDirection,
-            },
+              try {
+                await enqueueExtractionJob(extractionPayload)
+                // Job is queued — extraction happens async in the worker.
+                // We track real counts via processed_emails.review_status='auto_accepted'
+                // queried separately in the sync status API, not via this counter.
+                return { processed: true, createdJob: false }
+              } catch (queueError) {
+                if (process.env.NODE_ENV !== 'production') {
+                  console.warn(
+                    'Extraction queue unavailable — processing inline (dev mode only)',
+                    queueError
+                  )
+                  const pipelineResult = await processExtractionJob(extractionPayload)
+                  const createdJob =
+                    pipelineResult?.outcome === 'auto_accepted' &&
+                    pipelineResult.upsertResult?.action === 'created'
+                  return { processed: true, createdJob }
+                }
+                throw queueError
+              }
+            } catch (err) {
+              console.error('Sync message processing failed:', err)
+              return { processed: false, createdJob: false }
+            }
           })
+        )
 
-          if (emailDirection !== 'outbound') {
-            await enqueueExtractionJob({
-              userId: payload.userId,
-              emailId: message.id,
-              jobId: createdJobId,
-            })
-          }
+        processedCount += results.filter((r) => r.processed).length
+        newJobsFound += results.filter((r) => r.createdJob).length
+
+        if (statusRow && (processedCount === totalEmails || processedCount % 5 === 0)) {
+          await updateSyncStatus(statusRow.id, {
+            processed_count: processedCount,
+            new_jobs_found: newJobsFound,
+          })
         }
       }
 
-      await supabase.from('processed_emails').insert({
-        user_id: payload.userId,
-        gmail_message_id: message.id,
-        from_address: fromAddress || 'unknown',
-        subject: subject || null,
-      })
-
-      processedCount += 1
-
-      if (statusRow && (processedCount === totalEmails || processedCount % 5 === 0)) {
-        await updateSyncStatus(statusRow.id, {
-          processed_count: processedCount,
-          new_jobs_found: newJobsFound,
-        })
+      // Update Gmail history cursor for incremental syncs.
+      try {
+        const profile = await getGmailProfile(accessToken)
+        if (profile.historyId) {
+          await supabase
+            .from('oauth_tokens')
+            .update({ last_history_id: profile.historyId, updated_at: new Date().toISOString() })
+            .eq('id', tokenData.tokenId)
+            .eq('user_id', payload.userId)
+            .eq('provider', 'google_gmail')
+        }
+      } catch {
+        // Best-effort cursor update.
       }
-
-      void createdJobId
     }
-  }
 
     if (statusRow) {
       await updateSyncStatus(statusRow.id, {
@@ -258,6 +333,21 @@ export async function processSyncJob(payload: SyncJobPayload) {
         processed_count: processedCount,
         new_jobs_found: newJobsFound,
         completed_at: new Date().toISOString(),
+      })
+    }
+
+    // Count jobs actually created (async workers may still be running,
+    // so we query the source of truth directly).
+    const { count: actualJobsCreated } = await supabase
+      .from('processed_emails')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', payload.userId)
+      .eq('review_status', 'auto_accepted')
+      .gte('updated_at', syncStartedAt)
+
+    if (statusRow && actualJobsCreated !== null) {
+      await updateSyncStatus(statusRow.id, {
+        new_jobs_found: actualJobsCreated,
       })
     }
 
@@ -270,6 +360,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
       newValues: {
         processedCount,
         newJobsFound,
+        mode: process.env.EXTRACTION_MODE || 'balanced',
       },
     })
   } catch (error) {
@@ -297,3 +388,8 @@ export async function processSyncJob(payload: SyncJobPayload) {
     await releaseSyncLock(payload.userId)
   }
 }
+
+// Note: the full pipeline now lives in `@/lib/extraction/processExtractionJob`.
+// Stage 1 classifier, Stage 2 extractor, Stage 3 verifier, and the fuzzy upsert
+// have been unified there and are mode-driven via `getExtractionConfig()`.
+// This sync worker is now a pure fetcher + fast-skip + dispatcher.

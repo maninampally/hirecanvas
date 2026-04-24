@@ -1,4 +1,4 @@
-const DEFAULT_GEMINI_MODEL = 'gemini-1.5-flash'
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
 
 export type ProviderRequest = {
   prompt: string
@@ -48,75 +48,98 @@ function isQuotaError(statusCode: number | undefined, text: string) {
 }
 
 export async function runGemini(request: ProviderRequest): Promise<ProviderResponse> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) {
+  // Support key rotation: try each key on quota errors
+  const keys = [
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+    process.env.GEMINI_API_KEY_4,
+  ].filter(Boolean) as string[]
+  if (keys.length === 0) {
     throw new ProviderError('gemini', 'GEMINI_API_KEY is not configured', {
       retryable: false,
     })
   }
 
-  const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+  let lastError: ProviderError | null = null
 
-  const combinedPrompt = request.systemPrompt
-    ? `${request.systemPrompt}\n\n${request.prompt}`
-    : request.prompt
+  for (const apiKey of keys) {
+    const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [{ text: combinedPrompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: request.temperature ?? 0.2,
-        maxOutputTokens: request.maxTokens ?? 1000,
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-    }),
-  })
+      body: JSON.stringify({
+        ...(request.systemPrompt && {
+          system_instruction: {
+            parts: [{ text: request.systemPrompt }],
+          },
+        }),
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: request.prompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: request.temperature ?? 0,
+          maxOutputTokens: request.maxTokens ?? 1000,
+          // Disable thinking for gemini-2.5-flash — it uses ~1000 thinking tokens
+          // that eat into the output budget, causing JSON truncation
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+    })
 
-  const payload = (await response.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-    usageMetadata?: {
-      promptTokenCount?: number
-      candidatesTokenCount?: number
-      totalTokenCount?: number
+    const payload = (await response.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+      usageMetadata?: {
+        promptTokenCount?: number
+        candidatesTokenCount?: number
+        totalTokenCount?: number
+      }
+      error?: { message?: string }
     }
-    error?: { message?: string }
+
+    if (!response.ok) {
+      const message = payload.error?.message || 'Gemini request failed'
+      lastError = new ProviderError('gemini', message, {
+        statusCode: response.status,
+        quotaError: isQuotaError(response.status, message),
+      })
+      // If quota error and we have more keys, try the next one
+      if (isQuotaError(response.status, message) && keys.indexOf(apiKey) < keys.length - 1) {
+        continue
+      }
+      throw lastError
+    }
+
+    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')?.trim()
+
+    if (!text) {
+      throw new ProviderError('gemini', 'Gemini returned an empty response', {
+        retryable: true,
+      })
+    }
+
+    const inputTokens = payload.usageMetadata?.promptTokenCount || 0
+    const outputTokens = payload.usageMetadata?.candidatesTokenCount || 0
+    const totalTokens = payload.usageMetadata?.totalTokenCount || inputTokens + outputTokens
+
+    return {
+      text,
+      model,
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens,
+      },
+    }
   }
 
-  if (!response.ok) {
-    const message = payload.error?.message || 'Gemini request failed'
-    throw new ProviderError('gemini', message, {
-      statusCode: response.status,
-      quotaError: isQuotaError(response.status, message),
-    })
-  }
-
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')?.trim()
-
-  if (!text) {
-    throw new ProviderError('gemini', 'Gemini returned an empty response', {
-      retryable: true,
-    })
-  }
-
-  const inputTokens = payload.usageMetadata?.promptTokenCount || 0
-  const outputTokens = payload.usageMetadata?.candidatesTokenCount || 0
-  const totalTokens = payload.usageMetadata?.totalTokenCount || inputTokens + outputTokens
-
-  return {
-    text,
-    model,
-    usage: {
-      inputTokens,
-      outputTokens,
-      totalTokens,
-    },
-  }
+  // Should never reach here, but just in case
+  throw lastError || new ProviderError('gemini', 'All Gemini API keys exhausted', { quotaError: true })
 }

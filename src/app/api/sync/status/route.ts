@@ -35,5 +35,34 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ status: data || null })
+  if (!data || !data.started_at) {
+    return NextResponse.json({ status: data || null })
+  }
+
+  const acceptedQuery = supabase
+    .from('processed_emails')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('review_status', 'auto_accepted')
+    .gte('updated_at', data.started_at)
+
+  const { count: acceptedCount } = await acceptedQuery
+  const derivedCount = acceptedCount ?? data.new_jobs_found ?? 0
+
+  if (derivedCount !== (data.new_jobs_found ?? 0)) {
+    await supabase
+      .from('sync_status')
+      .update({
+        new_jobs_found: derivedCount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', data.id)
+  }
+
+  return NextResponse.json({
+    status: {
+      ...data,
+      new_jobs_found: derivedCount,
+    },
+  })
 }
