@@ -30,6 +30,7 @@ import {
   MdChevronRight,
   MdMenu,
   MdBalance,
+  MdCreditCard,
   MdViewSidebar,
 } from 'react-icons/md'
 
@@ -47,7 +48,7 @@ function getNavigationSections(tier?: string) {
       title: 'OVERVIEW',
       items: [
         { label: 'Dashboard', href: '/dashboard', icon: MdDashboard },
-        { label: 'Applications', href: '/jobs', icon: MdWork },
+        { label: 'Applications', href: '/applications', icon: MdWork },
       ],
     },
     {
@@ -71,7 +72,7 @@ function getNavigationSections(tier?: string) {
       title: 'SYSTEM',
       items: [
         ...systemItems,
-        { label: 'Billing', href: '/billing', icon: MdBalance },
+        { label: 'Billing', href: '/billing', icon: MdCreditCard },
       ],
     },
   ]
@@ -79,7 +80,7 @@ function getNavigationSections(tier?: string) {
 
 const pathTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
-  '/jobs': 'Applications',
+  '/applications': 'Applications',
   '/contacts': 'Contacts',
   '/outreach': 'Outreach',
   '/reminders': 'Reminders',
@@ -138,6 +139,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('keydown', handler)
   }, [])
 
+  const [bannerDismissed, setBannerDismissed] = useState(false)
+  const isHomePage = pathname === '/' || pathname === '/dashboard'
+  const showConnectBanner = Boolean(
+    user && !user.onboarding_completed && isHomePage && !bannerDismissed
+  )
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     logout()
@@ -147,16 +154,18 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const handleSyncInbox = async () => {
     setIsSyncing(true)
     try {
-      const response = await fetch('/api/sync/trigger', { method: 'POST' })
+      const response = await fetch('/api/sync/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        }),
+      })
       const data = (await response.json()) as {
         message?: string; error?: string; remaining?: number
       }
       if (!response.ok) throw new Error(data.error || 'Unable to start sync')
-      toast.success(
-        typeof data.remaining === 'number'
-          ? `Sync started. Remaining: ${data.remaining}`
-          : data.message || 'Sync started'
-      )
+      toast.success(data.message || 'Sync started')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to start sync')
     } finally {
@@ -167,7 +176,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pageTitle = pathTitles[pathname] || 'Dashboard'
 
   return (
-    <div className="flex h-screen bg-[#f5f6ff] overflow-hidden">
+    <div className="flex h-screen bg-[#f0fdfb] overflow-hidden">
       {mobileSidebarOpen && (
         <button
           className="fixed inset-0 z-40 bg-black/35 lg:hidden"
@@ -178,11 +187,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
       {/* ── Sidebar ── */}
       <aside
-        className={`${collapsed ? 'lg:w-[72px]' : 'lg:w-64'} w-72 bg-gradient-to-b from-[#eef2ff] to-[#e0e7ff] border-r border-indigo-100/70 flex flex-col transition-all duration-300 ease-in-out overflow-hidden fixed lg:static inset-y-0 left-0 z-50 lg:z-auto ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+        className={`${collapsed ? 'lg:w-[72px]' : 'lg:w-64'} w-72 bg-gradient-to-b from-[#ecfeff] to-[#ccfbf1] border-r border-teal-100/70 flex flex-col transition-all duration-300 ease-in-out overflow-hidden fixed lg:static inset-y-0 left-0 z-50 lg:z-auto ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Logo */}
-        <div className="p-4 border-b border-indigo-100/70 flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md shadow-indigo-500/30">
+        <div className="p-4 border-b border-teal-100/70 flex items-center gap-3">
+          <div className="w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md shadow-teal-500/30">
             H
           </div>
           {!collapsed && (
@@ -197,7 +206,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           {getNavigationSections(user?.tier).map((section) => (
             <div key={section.title}>
               {!collapsed && (
-                <p className="text-[10px] font-bold text-indigo-500/60 uppercase tracking-widest mb-2 px-3">
+                <p className="text-[10px] font-bold text-teal-600/70 uppercase tracking-widest mb-2 px-3">
                   {section.title}
                 </p>
               )}
@@ -212,14 +221,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                       onClick={() => setMobileSidebarOpen(false)}
                       className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                         isActive
-                          ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/25'
+                          ? 'bg-teal-500 text-white shadow-md shadow-teal-500/25'
                           : 'text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-sm'
                       }`}
                       title={collapsed ? item.label : undefined}
                     >
                       <Icon
                         className={`text-lg flex-shrink-0 transition-transform duration-200 group-hover:scale-110 ${
-                          isActive ? 'text-white' : 'text-slate-400 group-hover:text-indigo-500'
+                          isActive ? 'text-white' : 'text-slate-400 group-hover:text-teal-500'
                         }`}
                       />
                       {!collapsed && item.label}
@@ -232,7 +241,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Sync + Collapse */}
-        <div className="border-t border-indigo-100/70 p-3 space-y-2">
+        <div className="border-t border-teal-100/70 p-3 space-y-2">
           <TierGate
             currentTier={user?.tier}
             allowedTiers={['pro', 'elite', 'admin']}
@@ -240,7 +249,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               !collapsed ? (
                 <button
                   onClick={() => setShowUpgradeModal(true)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors"
                 >
                   <MdSync className="text-lg" />
                   {!collapsed && 'Upgrade to Sync'}
@@ -251,11 +260,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <button
               onClick={handleSyncInbox}
               disabled={isSyncing || syncInProgress}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors disabled:opacity-50"
             >
               <MdSync className={`text-lg ${isSyncing || syncInProgress ? 'animate-spin-slow' : ''}`} />
               {!collapsed && (isSyncing ? 'Syncing...' : syncInProgress ? 'In Progress...' : 'Sync Jobs')}
             </button>
+            {!collapsed && syncInProgress && (
+              <p className="mt-1 px-1 text-[11px] text-teal-700">
+                Sync running in background...
+              </p>
+            )}
           </TierGate>
 
           <button
@@ -267,11 +281,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* User */}
-        <div className="border-t border-indigo-100/70 p-3">
+        <div className="border-t border-teal-100/70 p-3">
           <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/60 cursor-pointer transition-colors"
             onClick={(e) => { e.stopPropagation(); setShowUserMenu(!showUserMenu) }}
           >
-            <div className="w-9 h-9 bg-gradient-to-br from-indigo-400 to-cyan-500 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-sm">
+            <div className="w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-sm">
               {user?.email?.charAt(0).toUpperCase() || 'U'}
             </div>
             {!collapsed && (
@@ -317,17 +331,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </button>
 
             {/* Sync status */}
-            {syncStatus && syncStatus.status !== 'idle' && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 rounded-full animate-fade-in">
-                <MdSync className={`text-sm text-indigo-600 ${syncStatus.status === 'in_progress' ? 'animate-spin-slow' : ''}`} />
-                <span className="text-xs font-medium text-indigo-700">
-                  {syncStatus.status === 'in_progress'
-                    ? `Syncing ${syncStatus.processed_count}/${syncStatus.total_emails}`
-                    : syncStatus.status === 'completed' ? 'Sync complete' : 'Sync failed'}
-                </span>
-              </div>
-            )}
-
             <NotificationCenter />
 
             <button
@@ -344,7 +347,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <div className="relative" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="w-9 h-9 bg-gradient-to-br from-indigo-400 to-cyan-500 rounded-full flex items-center justify-center text-white font-bold text-sm hover:shadow-md hover:shadow-indigo-500/20 transition-all duration-200"
+                className="w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm hover:shadow-md hover:shadow-teal-500/20 transition-all duration-200"
               >
                 {user?.email?.charAt(0).toUpperCase() || 'U'}
               </button>
@@ -378,6 +381,33 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         {/* Page Content */}
         <div className="flex min-h-0 flex-1">
           <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 pb-20 lg:pb-8">
+            {showConnectBanner && (
+              <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-teal-200 bg-gradient-to-r from-teal-50 to-teal-50/40 px-4 py-3.5">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xl shrink-0">📬</span>
+                  <div>
+                    <p className="text-sm font-semibold text-teal-900">Your inbox knows before you do.</p>
+                    <p className="text-xs text-teal-700 mt-0.5">Connect Gmail and HireCanvas will track every rejection, interview invite, and offer — automatically.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <a
+                    href="/settings?tab=connections"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-xs font-semibold px-3 py-1.5 transition-colors"
+                  >
+                    Connect Gmail →
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setBannerDismissed(true)}
+                    className="text-teal-400 hover:text-teal-600 p-1 rounded transition-colors"
+                    aria-label="Dismiss"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="animate-fade-in">
               {children}
             </div>
@@ -392,8 +422,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <nav className="fixed bottom-0 inset-x-0 z-30 lg:hidden border-t border-slate-200 bg-white/95 backdrop-blur-sm px-2 py-2">
           <div className="grid grid-cols-6 gap-1 text-[11px]">
             {[
-              { href: '/dashboard', label: 'Home', icon: MdDashboard },
-              { href: '/jobs', label: 'Jobs', icon: MdWork },
+              { href: '/dashboard', label: 'Dashboard', icon: MdDashboard },
+              { href: '/applications', label: 'Jobs', icon: MdWork },
               { href: '/contacts', label: 'Contacts', icon: MdPeople },
               { href: '/reminders', label: 'Reminders', icon: MdNotifications },
               { href: '/resumes', label: 'Resumes', icon: MdDescription },
@@ -406,7 +436,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   onClick={() => setMobileSidebarOpen(false)}
-                  className={`flex flex-col items-center justify-center rounded-lg py-1.5 ${isActive ? 'text-indigo-600 bg-indigo-50' : 'text-slate-500'}`}
+                  className={`flex flex-col items-center justify-center rounded-lg py-1.5 ${isActive ? 'text-teal-600 bg-teal-50' : 'text-slate-500'}`}
                 >
                   <Icon className="text-base" />
                   <span>{item.label}</span>

@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { cookies } from 'next/headers'
+import { headers } from 'next/headers'
 import { decryptSecret } from '@/lib/security/encryption'
 import { recordAuditEvent } from '@/lib/security/audit'
 import { listGmailMessages } from '@/lib/gmail/client'
@@ -35,7 +35,7 @@ export type UserSessionItem = {
   user_agent: string | null
   ip_address: string | null
   last_activity: string | null
-  expires_at: string
+  expires_at: string | null
   created_at: string
   is_current: boolean
 }
@@ -49,10 +49,22 @@ export type ConnectionStatus = {
   gmail_is_revoked: boolean
 }
 
+export type ReferralStatus = {
+  referralCode: string
+  referralUrl: string
+  totalInvites: number
+  qualifiedInvites: number
+  rewardedInvites: number
+}
+
 export type GmailConnectionCheckResult = {
   ok: boolean
   message: string
   messageCountSample?: number
+}
+
+type UserTimezoneRow = {
+  timezone: string | null
 }
 
 const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
@@ -76,6 +88,22 @@ function generateBackupCodes(count = 8) {
   return codes
 }
 
+function generateReferralCode(userId: string) {
+  return `HC${userId.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+}
+
+function isMissingColumnError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const value = error as { code?: string; message?: string }
+  return value.code === 'PGRST204' || value.message?.includes("Could not find the 'referral_code' column") || false
+}
+
+function isMissingTableError(error: unknown, table: string) {
+  if (!error || typeof error !== 'object') return false
+  const value = error as { code?: string; message?: string }
+  return value.code === '42P01' || value.message?.toLowerCase().includes(table.toLowerCase()) || false
+}
+
 async function getAuthenticatedUser() {
   const supabase = await createClient()
   const {
@@ -91,20 +119,72 @@ async function getAuthenticatedUser() {
   const fullName = typeof fullNameRaw === 'string' ? fullNameRaw : ''
   const avatarRaw = user.user_metadata?.avatar_url
   const avatarUrl = typeof avatarRaw === 'string' ? avatarRaw : null
+  const referralCode = generateReferralCode(user.id)
 
   const { error: profileError } = await service.from('app_users').upsert(
     {
       id: user.id,
       full_name: fullName,
       avatar_url: avatarUrl,
+      referral_code: referralCode,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'id' }
   )
 
-  if (profileError) throw profileError
+  if (profileError) {
+    if (isMissingColumnError(profileError)) {
+      const { error: fallbackError } = await service.from('app_users').upsert(
+        {
+          id: user.id,
+          full_name: fullName,
+          avatar_url: avatarUrl,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      )
+      if (fallbackError) throw fallbackError
+    } else {
+      throw profileError
+    }
+  }
 
   return { supabase, user }
+}
+
+export async function getReferralStatus(): Promise<ReferralStatus> {
+  const { supabase, user } = await getAuthenticatedUser()
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+
+  const { data: profile, error: profileError } = await supabase
+    .from('app_users')
+    .select('referral_code')
+    .eq('id', user.id)
+    .maybeSingle<{ referral_code: string | null }>()
+
+  if (profileError && !isMissingColumnError(profileError)) {
+    throw profileError
+  }
+
+  const referralCode = profile?.referral_code || generateReferralCode(user.id)
+
+  const { data: events, error: eventsError } = await supabase
+    .from('referral_events')
+    .select('status')
+    .eq('referrer_user_id', user.id)
+
+  if (eventsError && !isMissingTableError(eventsError, 'referral_events')) {
+    throw eventsError
+  }
+
+  const rows = events || []
+  return {
+    referralCode,
+    referralUrl: `${appUrl}/r/${referralCode}`,
+    totalInvites: rows.length,
+    qualifiedInvites: rows.filter((row) => row.status === 'qualified' || row.status === 'rewarded').length,
+    rewardedInvites: rows.filter((row) => row.status === 'rewarded').length,
+  }
 }
 
 export async function getNotificationPreferences() {
@@ -262,49 +342,39 @@ export async function saveMFAStatus(payload: { is_enabled: boolean; backup_codes
 
 export async function getUserSessions() {
   const { supabase, user } = await getAuthenticatedUser()
-  const cookieStore = await cookies()
-  const currentToken = cookieStore.get('hc_session_token')?.value
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
 
-  const { data, error } = await supabase
-    .from('user_sessions')
-    .select('id,session_token,user_agent,ip_address,last_activity,expires_at,created_at')
-    .eq('user_id', user.id)
-    .order('last_activity', { ascending: false })
+  if (!session) return []
 
-  if (error) throw error
+  const headerStore = await headers()
+  const userAgent = headerStore.get('user-agent')
+  const forwardedFor = headerStore.get('x-forwarded-for')
+  const ipAddress = forwardedFor?.split(',')[0]?.trim() || null
+  const expiresAt = session.expires_at
+    ? new Date(session.expires_at * 1000).toISOString()
+    : null
 
-  return (data || []).map((session) => ({
-    id: session.id,
-    user_agent: session.user_agent,
-    ip_address: session.ip_address,
-    last_activity: session.last_activity,
-    expires_at: session.expires_at,
-    created_at: session.created_at,
-    is_current: Boolean(currentToken && session.session_token === currentToken),
-  })) as UserSessionItem[]
+  return [
+    {
+      id: 'current-session',
+      user_agent: userAgent,
+      ip_address: ipAddress,
+      last_activity: new Date().toISOString(),
+      expires_at: expiresAt,
+      created_at: user.created_at || new Date().toISOString(),
+      is_current: true,
+    },
+  ] as UserSessionItem[]
 }
 
 export async function revokeSession(sessionId: string) {
-  const { supabase, user } = await getAuthenticatedUser()
-  const cookieStore = await cookies()
-  const currentToken = cookieStore.get('hc_session_token')?.value
+  const { user } = await getAuthenticatedUser()
 
-  const { data: row, error: fetchError } = await supabase
-    .from('user_sessions')
-    .select('session_token')
-    .eq('id', sessionId)
-    .eq('user_id', user.id)
-    .single<{ session_token: string }>()
-
-  if (fetchError) throw fetchError
-
-  const { error } = await supabase
-    .from('user_sessions')
-    .delete()
-    .eq('id', sessionId)
-    .eq('user_id', user.id)
-
-  if (error) throw error
+  if (sessionId !== 'current-session') {
+    throw new Error('Only the current session can be revoked from this device.')
+  }
 
   await recordAuditEvent({
     userId: user.id,
@@ -313,13 +383,13 @@ export async function revokeSession(sessionId: string) {
     resourceType: 'user_session',
     resourceId: sessionId,
     newValues: {
-      was_current_session: Boolean(currentToken && row.session_token === currentToken),
+      was_current_session: true,
     },
   })
 
   return {
     revoked: true,
-    was_current_session: Boolean(currentToken && row.session_token === currentToken),
+    was_current_session: true,
   }
 }
 
@@ -374,6 +444,20 @@ export async function disconnectGmail(tokenId: string) {
 
   if (error) throw error
 
+  // Check if any Gmail accounts remain — if none, reset onboarding so the banner reappears
+  const { count } = await supabase
+    .from('oauth_tokens')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('provider', 'google_gmail')
+
+  if ((count ?? 0) === 0) {
+    await supabase
+      .from('app_users')
+      .update({ onboarding_completed: false, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
+  }
+
   return { disconnected: true }
 }
 
@@ -398,4 +482,33 @@ export async function checkGmailConnection(tokenId: string) {
           : 'Connected but Gmail API check failed.',
     } as GmailConnectionCheckResult
   }
+}
+
+export async function setUserTimezone(timezone: string) {
+  const { supabase, user } = await getAuthenticatedUser()
+  const normalized = timezone.trim()
+  if (!normalized) return { timezone: null }
+
+  const { error } = await supabase
+    .from('app_users')
+    .update({
+      timezone: normalized,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', user.id)
+
+  if (error) {
+    if (isMissingColumnError(error)) {
+      return { timezone: null }
+    }
+    throw error
+  }
+
+  const { data } = await supabase
+    .from('app_users')
+    .select('timezone')
+    .eq('id', user.id)
+    .maybeSingle<UserTimezoneRow>()
+
+  return { timezone: data?.timezone || normalized }
 }
