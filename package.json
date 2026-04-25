@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:unit": "tsx --test src/lib/ai/*.test.ts",
+    "test:unit": "tsx --test src/lib/ai/*.test.ts src/lib/gmail/*.test.ts",
     "sync:schedule:daily": "tsx --env-file=.env.local src/lib/sync/runDailySyncScheduler.ts",
     "diagnose": "tsx --env-file=.env.local scripts/diagnose.ts",
     "reset:rejected": "tsx --env-file=.env.local scripts/resetRejected.ts",

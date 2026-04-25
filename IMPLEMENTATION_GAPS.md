@@ -1,21 +1,53 @@
-# IMPLEMENTATION_GAPS.md
+# HireCanvas — Pending Tasks
 
-Last updated: 2026-04-21
+**Last updated:** 2026-04-24
 
-The previous multi-sprint execution board lived here. **It has been retired** so this repo stays easy to maintain. Use GitHub issues or your product roadmap for new work.
+---
 
-## What is already implemented (high level)
+## 1. P1 — Revenue & growth
 
-- **Stripe:** Checkout (`src/app/api/checkout/route.ts`), customer portal (`src/app/api/portal/route.ts`), signed webhooks (`src/app/api/webhooks/stripe/route.ts`), helpers (`src/lib/stripe/client.ts`, `src/lib/stripe/webhooks.ts`).
-- **Billing UI:** Live plan and history from Supabase (`src/app/(dashboard)/billing/page.tsx`, `src/actions/billing.ts`).
-- **Ledger:** `billing_events` migration `supabase/migrations/036_billing_events.sql`.
-- **Admin metrics:** Revenue snapshot from billing + AI usage (`src/app/api/admin/overview/route.ts`, `src/app/(dashboard)/admin/page.tsx`).
+### 1.1 Replace fake trust signals
+`MARKETING_TRUST_CHIPS` = "Secure authentication / Gmail OAuth / Pipeline-first workflow" — not trust signals. Replace after beta with real testimonial or real user count. Needs real content.
 
-## What you still do outside the repo
+---
 
-- **Production validation:** Deployed host, SSL, env on the server, smoke test (register → Gmail → sync → jobs). CI/CD and health checks are in code; execution needs your infrastructure.
-- **Stripe Dashboard:** Products/prices, webhook URL to `/api/webhooks/stripe`, and live or test keys in env (see `.env.example`).
+## 2. Manual actions required
 
-## Optional follow-ups (not tracked in this file)
+- [ ] **Rotate all secrets** — Supabase service role, Anthropic, OpenAI, Gemini, Google OAuth client secret, Stripe secret, `TOKEN_ENCRYPTION_KEY`, `SYNC_CRON_SECRET`. Delete commented `DB_PASS` from `.env.local`.
+- [ ] **Stripe live-mode test** — Create Pro/Elite products in Stripe, point webhook to production URL, test real card charge end-to-end, confirm `app_users.tier` flips.
+- [ ] **Google OAuth verification** — Submit `gmail.readonly` scope for Google brand verification + CASA Tier 2 audit (~$2–4k, 3 weeks elapsed). Cap new users at 100 until approved.
+- [ ] **ProductHunt launch** — After P0s ship.
 
-Examples: Google Calendar sync, Chrome extension, PWA, university tier, outbound Zapier-style webhooks, public stats profile, deeper mobile polish, auth-gated E2E in CI (`E2E_USER_EMAIL` / `E2E_USER_PASSWORD`). Track these wherever you plan sprints.
+---
+
+---
+
+## 4. P3 — Scale / future
+
+- **Mobile PWA pass** — `manifest.json`, audit core views for mobile overflow.
+- **Extraction corrections table** — `extraction_corrections(original_json, user_corrected_json)`. After 500 rows → prompt eval set.
+- **Company canonicalization** — "Meta" ≠ "Meta Platforms". Add `company_canonical` column or `companies` table.
+- **Scale prep** (at ~5k users) — Upstash/ElastiCache Redis, separate EC2 for workers, read replica.
+
+---
+
+## Architecture decisions
+
+- Stay on Next.js. Don't rewrite in Python.
+- Gemini 2.x Flash as primary. Claude Haiku for Elite rescue.
+- Teal only — no indigo, violet, or purple anywhere.
+- Annual plans live from day 1.
+- India is the first market. Pricing in USD.
+- All AI calls via BullMQ — never synchronous in API routes.
+- Tier limits always read from `tier_config` table — no hardcoding.
+
+---
+
+## Anti-patterns to avoid
+
+1. `(window as any)` — use proper type interfaces.
+2. `catch(e: any)` — use `catch(e)` + `instanceof Error` narrowing.
+3. `setState` calls mid-effect without `eslint-disable` comment.
+4. Single-word Gmail subject queries — quoted phrases only.
+5. Synchronous AI calls in API routes.
+6. Hardcoded tier checks — use `tier_config`.
