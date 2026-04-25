@@ -317,6 +317,7 @@ export async function flagForReview(params: {
   contentHash: string | null
   reason: string
   extraction: Record<string, unknown> | null
+  receivedAt?: string | null
 }) {
   const supabase = createServiceClient()
   await supabase.from('processed_emails').upsert(
@@ -331,6 +332,7 @@ export async function flagForReview(params: {
       review_status: 'needs_review',
       review_reason: params.reason,
       borderline_extraction: params.extraction,
+      ...(params.receivedAt ? { received_at: params.receivedAt } : {}),
     },
     { onConflict: 'user_id,gmail_message_id' }
   )
@@ -344,6 +346,7 @@ export async function markAutoAccepted(params: {
   contentHash: string | null
   reason: string
   extraction: Record<string, unknown> | null
+  receivedAt?: string | null
 }) {
   const supabase = createServiceClient()
   await supabase.from('processed_emails').upsert(
@@ -369,6 +372,7 @@ export async function markAutoRejected(params: {
   subject: string | null
   contentHash: string | null
   reason: string
+  receivedAt?: string | null
 }) {
   const supabase = createServiceClient()
   await supabase.from('processed_emails').upsert(

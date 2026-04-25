@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { getWeeklyStrategyReport, type WeeklyStrategyReport as WeeklyStrategyReportData } from '@/actions/dashboard'
 import { useAuthStore } from '@/stores/authStore'
 import { TierGate } from '@/components/ui/TierGate'
+import { UpgradeModal } from '@/components/auth/UpgradeModal'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +17,7 @@ type WeeklyStrategyReportProps = {
 
 export function WeeklyStrategyReport({ initialInsights = [], className }: WeeklyStrategyReportProps) {
   const { user } = useAuthStore()
+  const [showUpgrade, setShowUpgrade] = useState(false)
   const [data, setData] = useState<WeeklyStrategyReportData | null>(
     initialInsights.length > 0
       ? {
@@ -42,6 +44,7 @@ export function WeeklyStrategyReport({ initialInsights = [], className }: Weekly
 
   return (
     <Card className={className}>
+      <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} feature="strategy_report" />
       <CardHeader>
         <CardTitle className="text-lg">Weekly Strategy Report</CardTitle>
         <p className="text-xs text-slate-600 mt-1">AI-generated next steps from your live pipeline data</p>
@@ -50,7 +53,12 @@ export function WeeklyStrategyReport({ initialInsights = [], className }: Weekly
         <TierGate
           currentTier={user?.tier}
           allowedTiers={['elite', 'admin']}
-          fallback={<p className="text-sm text-slate-600">Upgrade to Elite to unlock weekly AI strategy reports.</p>}
+          fallback={
+            <div className="space-y-2">
+              <p className="text-sm text-slate-600">Get AI-generated coaching and next steps based on your live pipeline. Elite feature.</p>
+              <Button variant="outline" size="sm" onClick={() => setShowUpgrade(true)}>Upgrade to Elite</Button>
+            </div>
+          }
         >
           <Button onClick={handleGenerate} disabled={isLoading}>
             {isLoading ? 'Generating...' : 'Generate This Week Report'}

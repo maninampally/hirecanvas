@@ -41,7 +41,8 @@ export const TIER_LABELS: Record<UserTier, string> = {
 
 export type MarketingPlan = {
   name: 'Free' | 'Pro' | 'Elite';
-  price: string;
+  priceMonthly: string;
+  priceYearly?: string;
   desc: string;
   features: string[];
   highlighted: boolean;
@@ -50,21 +51,23 @@ export type MarketingPlan = {
 export const MARKETING_PLANS: MarketingPlan[] = [
   {
     name: 'Free',
-    price: '0',
+    priceMonthly: '0',
     desc: 'Get started with the basics',
     features: ['Manual job entry', 'Basic templates', 'Interview prep', '5 contacts'],
     highlighted: false,
   },
   {
     name: 'Pro',
-    price: '9.99',
+    priceMonthly: '9.99',
+    priceYearly: '95.99',
     desc: 'Automate your job search',
     features: ['3 auto syncs/day', 'Gemini AI extraction', 'Follow-up nudges', 'Unlimited contacts', 'All templates'],
     highlighted: true,
   },
   {
     name: 'Elite',
-    price: '29.99',
+    priceMonthly: '29.99',
+    priceYearly: '287.99',
     desc: 'The ultimate edge',
     features: ['Unlimited syncs', 'Claude AI extraction', 'AI cover letters', 'Interview coaching', 'Priority support'],
     highlighted: false,

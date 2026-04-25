@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { enforceRateLimit } from '@/lib/security/rateLimit'
 import { createClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/client'
 
@@ -10,6 +11,14 @@ export async function POST(request: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const rateLimit = await enforceRateLimit(user.id, 'billing_portal', 5, 60)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many portal attempts. Please wait and try again.' },
+      { status: 429 }
+    )
   }
 
   const { data: appUser } = await supabase

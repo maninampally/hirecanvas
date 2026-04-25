@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { enforceRateLimit } from '@/lib/security/rateLimit'
 import { createServiceClient } from '@/lib/supabase/service'
 
 export async function GET(request: NextRequest) {
@@ -6,6 +7,14 @@ export async function GET(request: NextRequest) {
 
   if (!token) {
     return NextResponse.json({ error: 'Missing unsubscribe token' }, { status: 400 })
+  }
+
+  const rateLimit = await enforceRateLimit(token, 'unsubscribe_link', 5, 60)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many unsubscribe attempts. Please wait and try again.' },
+      { status: 429 }
+    )
   }
 
   const supabase = createServiceClient()

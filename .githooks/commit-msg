@@ -1,9 +1,0 @@
-#!/bin/sh
-# Reject IDE vendor trailers in commit messages. Enable: git config core.hooksPath .githooks
-msg="$1"
-[ -n "$msg" ] && [ -f "$msg" ] || exit 0
-if grep -qiE '^([Mm]ade-with:[[:space:]]*[Cc]ursor|[Cc]o-[Aa]uthored-by:[[:space:]]*[^[:space:]]*[Cc]ursor)' "$msg"; then
-  echo >&2 "Remove 'Made-with: Cursor' / Co-authored-by Cursor from the commit message, then commit again."
-  exit 1
-fi
-exit 0

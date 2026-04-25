@@ -15,10 +15,17 @@ export function getStripeClient() {
   return stripeClient
 }
 
-export function getPriceIdForTier(tier: 'pro' | 'elite') {
-  const priceId = tier === 'pro' ? process.env.STRIPE_PRO_PRICE_ID : process.env.STRIPE_ELITE_PRICE_ID
+export function getPriceIdForTier(tier: 'pro' | 'elite', interval: 'month' | 'year' = 'month') {
+  const priceId =
+    tier === 'pro'
+      ? interval === 'year'
+        ? process.env.STRIPE_PRO_YEARLY_PRICE_ID
+        : process.env.STRIPE_PRO_PRICE_ID
+      : interval === 'year'
+      ? process.env.STRIPE_ELITE_YEARLY_PRICE_ID
+      : process.env.STRIPE_ELITE_PRICE_ID
   if (!priceId) {
-    throw new Error(`Missing Stripe price id for tier: ${tier}`)
+    throw new Error(`Missing Stripe price id for tier: ${tier} (${interval})`)
   }
 
   return priceId
@@ -26,6 +33,8 @@ export function getPriceIdForTier(tier: 'pro' | 'elite') {
 
 export function getTierFromPriceId(priceId: string) {
   if (priceId === process.env.STRIPE_PRO_PRICE_ID) return 'pro'
+  if (priceId === process.env.STRIPE_PRO_YEARLY_PRICE_ID) return 'pro'
   if (priceId === process.env.STRIPE_ELITE_PRICE_ID) return 'elite'
+  if (priceId === process.env.STRIPE_ELITE_YEARLY_PRICE_ID) return 'elite'
   return null
 }

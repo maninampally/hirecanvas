@@ -682,3 +682,94 @@ export async function updateJobStatus(jobId: string, status: string) {
   }
   await updateStreakOnJobActivity(user.id)
 }
+
+export async function getReviewQueueItems() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Unauthorized')
+
+  const { data, error } = await supabase
+    .from('processed_emails')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('review_status', 'needs_review')
+    .order('processed_at', { ascending: false })
+
+  if (error) throw error
+  return data
+}
+
+export async function dismissReviewItem(id: string) {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Unauthorized')
+
+  const { error } = await supabase
+    .from('processed_emails')
+    .update({ review_status: 'auto_rejected', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', user.id)
+
+  if (error) throw error
+}
+
+export async function acceptReviewItem(id: string, jobData: JobFormData) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) throw new Error('Unauthorized')
+
+  // Check if job exists for this company
+  const { data: existingJobs } = await supabase
+    .from('jobs')
+    .select('id, title, company, status')
+    .eq('user_id', user.id)
+    .ilike('company', `%${jobData.company}%`)
+
+  let finalJob = null
+
+  if (existingJobs && existingJobs.length > 0) {
+    // Try to match by title
+    const match = existingJobs.find(j => {
+      const dbTitleWords = new Set(j.title.toLowerCase().split(/\W+/))
+      const newTitleWords = jobData.title.toLowerCase().split(/\W+/)
+      return newTitleWords.some(w => w.length > 3 && dbTitleWords.has(w))
+    }) || existingJobs[0]
+
+    // Update the existing job's status if it advanced
+    await updateJob(match.id, { 
+      status: jobData.status,
+      applied_date: jobData.applied_date // keep applying updated date if provided
+    })
+    
+    // Add timeline entry
+    await supabase.from('job_status_timeline').insert({
+      job_id: match.id,
+      status: jobData.status,
+      notes: jobData.notes,
+      requires_review: false,
+    })
+
+    finalJob = match
+  } else {
+    // create new job
+    finalJob = await createJob(jobData)
+  }
+
+  await supabase
+    .from('processed_emails')
+    .update({ review_status: 'auto_accepted', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', user.id)
+
+  return finalJob
+}

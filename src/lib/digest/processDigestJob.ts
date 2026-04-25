@@ -165,4 +165,8 @@ export async function processDigestJob(payload: DigestJobPayload) {
       status: 'completed',
     })
   }
+
+  // Keep only the 10 most recent sync_status rows per user — prevents unbounded growth
+  // (3 syncs/day × 365 days = 1,095 rows/user/year without this)
+  await supabase.rpc('cleanup_old_sync_status')
 }

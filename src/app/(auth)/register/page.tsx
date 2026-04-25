@@ -24,13 +24,25 @@ export default function RegisterPage() {
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { full_name: fullName } },
       })
       if (error) throw error
-      router.push('/dashboard')
+
+      const referralCookie = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('hc_ref='))
+        ?.split('=')[1]
+      if (referralCookie && data.user) {
+        void fetch('/api/referrals/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: decodeURIComponent(referralCookie) }),
+        })
+      }
+      router.push('/verify-email?redirectedFrom=/settings')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
@@ -42,7 +54,7 @@ export default function RegisterPage() {
     setGoogleLoading(true)
     setError(null)
     try {
-      const redirectTo = `${window.location.origin}/api/auth/google/callback?next=/dashboard`
+      const redirectTo = `${window.location.origin}/api/auth/google/callback?next=/settings?tab=connections`
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -77,7 +89,7 @@ export default function RegisterPage() {
       <Card className="w-full shadow-teal-md border-slate-200/60 rounded-3xl">
         <CardHeader className="text-center pb-2">
           <CardTitle className="text-2xl">Create your account</CardTitle>
-          <CardDescription>Start tracking your job search for free</CardDescription>
+          <CardDescription>Start your 14-day Pro trial and connect Gmail in minutes</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleRegister} className="space-y-4">

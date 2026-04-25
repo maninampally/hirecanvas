@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { jobSchema, JobFormData } from '@/lib/validations/jobs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { StatusDropdown } from '@/components/ui/status-badge'
 
@@ -23,6 +24,7 @@ export function JobForm({ onSubmit, initialData, isLoading = false }: JobFormPro
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<JobFormData>({
     resolver: zodResolver(jobSchema),
@@ -34,6 +36,7 @@ export function JobForm({ onSubmit, initialData, isLoading = false }: JobFormPro
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const status = watch('status')
+  const appliedDate = watch('applied_date') || ''
 
   const handleFormSubmit = async (data: JobFormData) => {
     try {
@@ -132,9 +135,15 @@ export function JobForm({ onSubmit, initialData, isLoading = false }: JobFormPro
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Applied Date
               </label>
-              <Input
-                type="date"
-                {...register('applied_date')}
+              <DateInput
+                value={appliedDate}
+                onChange={(next) =>
+                  setValue('applied_date', next, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                    shouldValidate: true,
+                  })
+                }
                 className="h-10"
                 disabled={isLoading || isSubmitting}
               />

@@ -10,6 +10,7 @@ type GmailTokenRow = {
   scopes: string[] | null
   expires_at: string | null
   is_revoked: boolean
+  last_history_id?: string | null
 }
 
 const TOKEN_EXPIRY_SKEW_MS = 60 * 1000
@@ -79,7 +80,7 @@ export async function getAllValidGmailAccessTokens(userId: string) {
   
   const { data, error } = await supabase
     .from('oauth_tokens')
-    .select('id, provider_email')
+    .select('id,provider_email,last_history_id')
     .eq('user_id', userId)
     .eq('provider', 'google_gmail')
     .eq('is_revoked', false)
@@ -91,7 +92,7 @@ export async function getAllValidGmailAccessTokens(userId: string) {
   for (const row of data) {
     try {
       const tokens = await getValidGmailAccessToken(userId, row.id)
-      results.push({ ...tokens, tokenId: row.id })
+      results.push({ ...tokens, tokenId: row.id, lastHistoryId: row.last_history_id || null })
     } catch (err) {
       await recordAuditEvent({
         userId,

@@ -54,6 +54,7 @@ export async function runGemini(request: ProviderRequest): Promise<ProviderRespo
     process.env.GEMINI_API_KEY_2,
     process.env.GEMINI_API_KEY_3,
     process.env.GEMINI_API_KEY_4,
+    process.env.GEMINI_API_KEY_5,
   ].filter(Boolean) as string[]
   if (keys.length === 0) {
     throw new ProviderError('gemini', 'GEMINI_API_KEY is not configured', {

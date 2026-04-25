@@ -8,16 +8,19 @@ import {
   checkGmailConnection,
   getConnectionStatus,
   getMFAStatus,
+  getReferralStatus,
   getNotificationPreferences,
   getUserSessions,
   revokeSession,
   saveMFAStatus,
+  setUserTimezone,
   updateAccountProfile,
   updateNotificationPreferences,
   type ConnectionStatus,
   type GmailConnectionCheckResult,
   type MFAStatus,
   type NotificationPreferences,
+  type ReferralStatus,
   type UserSessionItem,
 } from '@/actions/settings'
 import { createClient } from '@/lib/supabase/client'
@@ -51,6 +54,57 @@ type MFAChallengeResult = {
 
 type MFAListFactorsResult = {
   totp?: Array<{ id: string }>
+}
+
+type SyncHealthResponse = {
+  gmailConnections: Array<{
+    id: string
+    email: string | null
+    isRevoked: boolean
+    expiresAt: string | null
+    updatedAt: string | null
+  }>
+  latestSync: {
+    status: 'in_progress' | 'completed' | 'failed' | null
+    total_emails: number | null
+    processed_count: number | null
+    new_jobs_found: number | null
+    error_message: string | null
+    updated_at: string | null
+  } | null
+  redis: {
+    ok: boolean
+    latencyMs: number | null
+    error?: string
+  }
+  queues: {
+    sync: {
+      ok: boolean
+      waiting: number | null
+      active: number | null
+      delayed: number | null
+      failed: number | null
+      error?: string
+    }
+    extraction: {
+      ok: boolean
+      waiting: number | null
+      active: number | null
+      delayed: number | null
+      failed: number | null
+      error?: string
+    }
+  }
+  checkedAt: string
+}
+
+type AIProviderHealth = {
+  provider: string
+  status: 'healthy' | 'cooldown' | 'degraded'
+  cooldownUntil: number
+  lastError: string | null
+  failures: number
+  lastSuccessAt: number
 }
 
 type SupabaseMFAApi = {
@@ -91,8 +145,14 @@ export default function SettingsPage() {
   const [savingConnection, setSavingConnection] = useState(false)
   const [checkingConnection, setCheckingConnection] = useState(false)
   const [connectionCheck, setConnectionCheck] = useState<GmailConnectionCheckResult | null>(null)
+  const [syncHealth, setSyncHealth] = useState<SyncHealthResponse | null>(null)
+  const [providerHealth, setProviderHealth] = useState<AIProviderHealth[]>([])
+  const [loadingSyncHealth, setLoadingSyncHealth] = useState(false)
+  const [syncHealthError, setSyncHealthError] = useState<string | null>(null)
+  const [providerKeys, setProviderKeys] = useState<{ gemini: boolean[]; openai: boolean[]; claude: boolean[] } | null>(null)
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
   const [onboardingBusy, setOnboardingBusy] = useState(false)
+  const [referralStatus, setReferralStatus] = useState<ReferralStatus | null>(null)
 
   function describeDevice(userAgent: string | null) {
     if (!userAgent) return 'Unknown device'
@@ -151,6 +211,64 @@ export default function SettingsPage() {
     return () => {
       mounted = false
       clearTimeout(timer)
+    }
+  }, [])
+
+  useEffect(() => {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (!timezone) return
+    void setUserTimezone(timezone).catch(() => {
+      // Best-effort timezone capture for local-time sync/reporting.
+    })
+  }, [])
+
+  async function loadSyncHealth() {
+    setLoadingSyncHealth(true)
+    setSyncHealthError(null)
+    try {
+      const [syncRes, provRes] = await Promise.all([
+        fetch('/api/sync/health'),
+        fetch('/api/admin/providers'),
+      ])
+      
+      const payload = (await syncRes.json()) as SyncHealthResponse & { error?: string }
+      if (!syncRes.ok) {
+        throw new Error(payload.error || 'Unable to load ingestion health')
+      }
+      setSyncHealth(payload)
+
+      if (provRes.ok) {
+        const provData = await provRes.json()
+        setProviderHealth(provData.providers || [])
+      }
+
+      const keysRes = await fetch('/api/settings/provider-keys')
+      if (keysRes.ok) {
+        const keysData = await keysRes.json()
+        setProviderKeys(keysData)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load ingestion health'
+      setSyncHealthError(message)
+      toast.error(message)
+    } finally {
+      setLoadingSyncHealth(false)
+    }
+  }
+
+  useEffect(() => {
+    let mounted = true
+    const loadReferral = async () => {
+      try {
+        const status = await getReferralStatus()
+        if (mounted) setReferralStatus(status)
+      } catch {
+        if (mounted) setReferralStatus(null)
+      }
+    }
+    void loadReferral()
+    return () => {
+      mounted = false
     }
   }, [])
 
@@ -386,7 +504,11 @@ export default function SettingsPage() {
     setSavingConnection(true)
     try {
       await disconnectGmail(tokenId)
-      setConnectionStatus((prev) => prev.filter((c) => c.id !== tokenId))
+      const remaining = connectionStatus.filter((c) => c.id !== tokenId)
+      setConnectionStatus(remaining)
+      if (remaining.length === 0 && user) {
+        setUser({ ...user, onboarding_completed: false })
+      }
       toast.success('Gmail disconnected')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to disconnect Gmail')
@@ -414,6 +536,12 @@ export default function SettingsPage() {
       setCheckingConnection(false)
     }
   }
+
+  useEffect(() => {
+    if (activeTab !== 'connections') return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadSyncHealth()
+  }, [activeTab])
 
   function updatePreference<K extends keyof Omit<NotificationPreferences, 'unsubscribe_token'>>(
     key: K,
@@ -463,6 +591,43 @@ export default function SettingsPage() {
       toast.error(error instanceof Error ? error.message : 'Unable to update onboarding status')
     } finally {
       setOnboardingBusy(false)
+    }
+  }
+
+  async function handleExportData() {
+    try {
+      const response = await fetch('/api/settings/export-data')
+      if (!response.ok) throw new Error('Failed to export data')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `hirecanvas-export-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+      toast.success('Data export downloaded')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to export data')
+    }
+  }
+
+  async function handleDeleteAccount() {
+    const confirmText = window.prompt('Type DELETE to permanently remove your account and data.')
+    if (!confirmText) return
+    try {
+      const response = await fetch('/api/settings/delete-account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: confirmText }),
+      })
+      const payload = (await response.json()) as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Delete failed')
+      toast.success('Account deleted')
+      router.push('/register')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete account')
     }
   }
 
@@ -562,6 +727,41 @@ export default function SettingsPage() {
               <Button className="mt-2" onClick={() => void handleAccountSave()} disabled={savingAccount}>
                 {savingAccount ? 'Updating...' : 'Update Account'}
               </Button>
+
+              {referralStatus && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-sm font-medium text-slate-900">Referral Program</p>
+                  <p className="text-xs text-slate-500 mt-1">Share your code and earn one month credit for qualified referrals.</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Input value={referralStatus.referralUrl} readOnly />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(referralStatus.referralUrl)
+                        toast.success('Referral link copied')
+                      }}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-600">
+                    Invites: {referralStatus.totalInvites} • Qualified: {referralStatus.qualifiedInvites} • Rewarded: {referralStatus.rewardedInvites}
+                  </p>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <p className="text-sm font-medium text-slate-900">Privacy & Data</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void handleExportData()}>
+                    Export My Data
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void handleDeleteAccount()}>
+                    Delete My Account
+                  </Button>
+                </div>
+              </div>
               </CardContent>
             </Card>
           </div>
@@ -662,7 +862,7 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-900">Active Sessions</p>
-                    <p className="text-xs text-slate-500">Revoke any session you do not recognize.</p>
+                    <p className="text-xs text-slate-500">Current device session from Supabase Auth.</p>
                   </div>
                 </div>
 
@@ -684,7 +884,7 @@ export default function SettingsPage() {
                           <p className="text-[11px] text-slate-500 truncate">{formatIp(session.ip_address)}</p>
                           <p className="text-[11px] text-slate-500">
                             Last activity: {session.last_activity ? new Date(session.last_activity).toLocaleString() : 'Unknown'} • Expires:{' '}
-                            {new Date(session.expires_at).toLocaleString()}
+                            {session.expires_at ? new Date(session.expires_at).toLocaleString() : 'Managed by Supabase'}
                           </p>
                         </div>
                         <Button
@@ -770,103 +970,271 @@ export default function SettingsPage() {
         )}
 
         {activeTab === 'connections' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Connected Accounts</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 max-w-lg">
-              {connectionSuccess === 'gmail' && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 animate-slide-down">
-                  Gmail connected successfully.
-                </div>
-              )}
-              {connectionError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-700 animate-slide-down">
-                  Gmail connection failed: {connectionError}
-                </div>
-              )}
-              {connectionCheck && (
-                <div
-                  className={`p-3 rounded-xl text-sm animate-slide-down ${
-                    connectionCheck.ok
-                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-                      : 'bg-amber-50 border border-amber-200 text-amber-800'
-                  }`}
-                >
-                  {connectionCheck.message}
-                  {typeof connectionCheck.messageCountSample === 'number' && (
-                    <span className="ml-1 text-xs">
-                      (recent sample messages found: {connectionCheck.messageCountSample})
-                    </span>
-                  )}
-                </div>
-              )}
-              {loadingConnections ? (
-                <p className="text-sm text-slate-500">Loading connection status...</p>
-              ) : connectionStatus.length === 0 ? (
-                <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 border border-slate-200/60">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center">
-                      <svg className="w-5 h-5" viewBox="0 0 24 24">
-                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">Gmail</p>
-                      <p className="text-xs text-slate-500">Not connected</p>
-                    </div>
+          <div className="space-y-6 max-w-xl">
+
+            {/* ── Alerts ── */}
+            {connectionSuccess === 'gmail' && (
+              <div className="flex items-center gap-2.5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 animate-slide-down">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                Gmail connected successfully.
+              </div>
+            )}
+            {connectionError && (
+              <div className="flex items-center gap-2.5 px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-700 animate-slide-down">
+                <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                Gmail connection failed: {connectionError}
+              </div>
+            )}
+            {connectionCheck && (
+              <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm animate-slide-down ${connectionCheck.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-amber-50 border border-amber-200 text-amber-800'}`}>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${connectionCheck.ok ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                {connectionCheck.message}
+                {typeof connectionCheck.messageCountSample === 'number' && (
+                  <span className="ml-1 text-xs opacity-70">({connectionCheck.messageCountSample} messages sampled)</span>
+                )}
+              </div>
+            )}
+
+            {/* ── Gmail Accounts ── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Gmail Accounts</CardTitle>
+                <p className="text-xs text-slate-500">Connect your Gmail to sync job application emails automatically.</p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {loadingConnections ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-400 py-2">
+                    <span className="w-4 h-4 border-2 border-slate-200 border-t-teal-500 rounded-full animate-spin" />
+                    Loading...
                   </div>
-                  <Button size="sm" onClick={() => router.push('/api/auth/gmail/connect')} disabled={savingConnection}>
-                    Connect
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {connectionStatus.map(conn => (
-                    <div key={conn.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-50 border border-slate-200/60">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center">
-                          <svg className="w-5 h-5" viewBox="0 0 24 24">
-                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                          </svg>
+                ) : connectionStatus.length === 0 ? (
+                  <div className="flex items-center justify-between p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 shadow-sm flex items-center justify-center">
+                        <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-700">No Gmail account connected</p>
+                        <p className="text-xs text-slate-400">Connect to start auto-syncing job emails</p>
+                      </div>
+                    </div>
+                    <Button size="sm" onClick={() => router.push('/api/auth/gmail/connect')} disabled={savingConnection}>
+                      Connect
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {connectionStatus.map(conn => (
+                      <div key={conn.id} className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 shadow-sm flex items-center justify-center">
+                              <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                            </div>
+                            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${conn.gmail_connected ? 'bg-emerald-500' : 'bg-rose-400'}`} />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{conn.gmail_email || 'Gmail'}</p>
+                            <p className="text-xs text-slate-400">
+                              {conn.gmail_connected
+                                ? conn.gmail_expires_at ? `Expires ${new Date(conn.gmail_expires_at).toLocaleDateString()}` : 'Connected'
+                                : 'Revoked or expired'}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">Gmail</p>
-                          <p className="text-xs text-slate-500">
-                            {conn.gmail_connected
-                              ? `${conn.gmail_email || 'Connected'}${conn.gmail_expires_at ? ` • Expires ${new Date(conn.gmail_expires_at).toLocaleString()}` : ''}`
-                              : 'Connection revoked or expired'}
-                          </p>
+                        <div className="flex items-center gap-1.5">
+                          <Button size="sm" variant="outline" onClick={() => void handleCheckGmailConnection(conn.id)} disabled={checkingConnection || savingConnection} className="text-xs h-8">
+                            {checkingConnection ? 'Testing...' : 'Test'}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => void handleDisconnectGmail(conn.id)} disabled={savingConnection || checkingConnection} className="text-xs h-8 text-rose-600 border-rose-200 hover:bg-rose-50">
+                            Disconnect
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void handleCheckGmailConnection(conn.id)}
-                          disabled={checkingConnection || savingConnection}
-                        >
-                          {checkingConnection ? 'Checking...' : 'Test Connection'}
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => void handleDisconnectGmail(conn.id)} disabled={savingConnection || checkingConnection}>
-                          {savingConnection ? 'Disconnecting...' : 'Disconnect'}
-                        </Button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => router.push('/api/auth/gmail/connect')}
+                      disabled={savingConnection}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-200 text-xs font-medium text-slate-500 hover:border-teal-300 hover:text-teal-600 hover:bg-teal-50/50 transition-colors disabled:opacity-50"
+                    >
+                      + Connect another Gmail account
+                    </button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ── Ingestion Health ── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">Ingestion Health</CardTitle>
+                    <p className="text-xs text-slate-500 mt-0.5">Live snapshot of sync and extraction pipeline.</p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => void loadSyncHealth()} disabled={loadingSyncHealth} className="h-8 text-xs">
+                    {loadingSyncHealth ? 'Refreshing...' : 'Refresh'}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {!syncHealth ? (
+                  <p className="text-xs text-slate-400 py-1">
+                    {syncHealthError ? <span className="text-rose-600">{syncHealthError}</span> : 'Click Refresh to load.'}
+                  </p>
+                ) : (
+                  <>
+                    {/* Status row */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
+                        <span className="text-xs text-slate-500">Gmail tokens</span>
+                        <span className="text-xs font-bold text-slate-900">{syncHealth.gmailConnections.length}</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
+                        <span className="text-xs text-slate-500">Redis</span>
+                        <span className={`flex items-center gap-1.5 text-xs font-semibold ${syncHealth.redis.ok ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${syncHealth.redis.ok ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                          {syncHealth.redis.ok ? `OK${typeof syncHealth.redis.latencyMs === 'number' ? ` (${syncHealth.redis.latencyMs}ms)` : ''}` : 'Down'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Queues */}
+                    <div className="space-y-1.5">
+                      {[
+                        { label: 'Sync queue', data: syncHealth.queues.sync },
+                        { label: 'Extraction queue', data: syncHealth.queues.extraction },
+                      ].map(({ label, data }) => (
+                        <div key={label} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-medium text-slate-700">{label}</span>
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${data.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                              {data.ok ? 'OK' : 'ERROR'}
+                            </span>
+                          </div>
+                          {data.ok ? (
+                            <div className="grid grid-cols-4 gap-1 text-[11px] text-slate-500">
+                              {(['waiting','active','delayed','failed'] as const).map(k => (
+                                <div key={k} className="text-center">
+                                  <p className={`font-bold ${k === 'failed' && (data[k] ?? 0) > 0 ? 'text-rose-600' : 'text-slate-800'}`}>{data[k] ?? 0}</p>
+                                  <p className="capitalize">{k}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-rose-600">{data.error}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Latest sync */}
+                    <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <p className="text-xs font-medium text-slate-700 mb-1.5">Latest sync</p>
+                      {syncHealth.latestSync ? (
+                        <div className="grid grid-cols-3 gap-1 text-[11px]">
+                          <div>
+                            <p className="text-slate-400">Status</p>
+                            <p className={`font-semibold capitalize ${syncHealth.latestSync.status === 'completed' ? 'text-emerald-600' : syncHealth.latestSync.status === 'failed' ? 'text-rose-600' : 'text-amber-600'}`}>
+                              {syncHealth.latestSync.status || 'unknown'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-slate-400">Processed</p>
+                            <p className="font-semibold text-slate-800">{syncHealth.latestSync.processed_count ?? 0}/{syncHealth.latestSync.total_emails ?? 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-400">Jobs found</p>
+                            <p className="font-semibold text-teal-700">{syncHealth.latestSync.new_jobs_found ?? 0}</p>
+                          </div>
+                          {syncHealth.latestSync.error_message && (
+                            <div className="col-span-3 mt-1 text-rose-600 bg-rose-50 px-2 py-1 rounded text-[11px]">
+                              {syncHealth.latestSync.error_message}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400">No sync runs yet.</p>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-slate-400">Checked {new Date(syncHealth.checkedAt).toLocaleString()}</p>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ── AI Provider Status ── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">AI Provider Status</CardTitle>
+                    <p className="text-xs text-slate-500 mt-0.5">Health of LLM providers used for email extraction.</p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => void loadSyncHealth()} disabled={loadingSyncHealth} className="h-8 text-xs">
+                    Refresh
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {providerHealth.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-1">No data — run a sync first to populate provider health.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {providerHealth.map((p) => (
+                      <div key={p.provider} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${p.status === 'healthy' ? 'bg-emerald-500' : p.status === 'cooldown' ? 'bg-amber-400' : 'bg-rose-500'}`} />
+                          <div>
+                            <p className="text-xs font-semibold text-slate-800 capitalize">{p.provider}</p>
+                            <p className="text-[11px] text-slate-400">
+                              {p.failures} failure{p.failures !== 1 ? 's' : ''} · last ok {p.lastSuccessAt > 0 ? new Date(p.lastSuccessAt).toLocaleTimeString() : 'never'}
+                              {p.status === 'cooldown' && ` · cooldown until ${new Date(p.cooldownUntil).toLocaleTimeString()}`}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${p.status === 'healthy' ? 'bg-emerald-50 text-emerald-700' : p.status === 'cooldown' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>
+                          {p.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ── AI Key Slots ── */}
+            {providerKeys && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">AI Key Slots</CardTitle>
+                  <p className="text-xs text-slate-500 mt-0.5">Which API key slots are configured on this server.</p>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {([
+                    { label: 'Gemini', keys: providerKeys.gemini, names: ['GEMINI_API_KEY', 'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3', 'GEMINI_API_KEY_4'] },
+                    { label: 'OpenAI', keys: providerKeys.openai, names: ['OPENAI_API_KEY', 'OPENAI_API_KEY_4'] },
+                    { label: 'Claude', keys: providerKeys.claude, names: ['ANTHROPIC_API_KEY'] },
+                  ] as const).map(({ label, keys, names }) => (
+                    <div key={label} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <p className="text-xs font-semibold text-slate-700 mb-2">{label}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(keys as boolean[]).map((configured, i) => (
+                          <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${configured ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-white text-slate-400 border border-slate-200'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${configured ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                            {names[i]}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   ))}
-                  <Button size="sm" variant="outline" className="w-full mt-2" onClick={() => router.push('/api/auth/gmail/connect')} disabled={savingConnection}>
-                    Connect Another Gmail Account
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            )}
+
+          </div>
         )}
       </div>
     </div>

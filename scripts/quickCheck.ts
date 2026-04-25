@@ -16,8 +16,9 @@ async function main() {
   try {
     const r = await runGemini(req)
     console.log('✓ Gemini OK:', r.text.slice(0, 150))
-  } catch(e: any) {
-    console.log('✗ Gemini FAILED:', e.message?.slice(0, 200))
+  } catch(e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.log('✗ Gemini FAILED:', msg.slice(0, 200))
     if (e instanceof ProviderError) console.log('  statusCode:', e.statusCode, 'quotaError:', e.quotaError)
   }
 
@@ -25,16 +26,16 @@ async function main() {
   try {
     const r = await runOpenAI(req)
     console.log('✓ OpenAI OK:', r.text.slice(0, 150))
-  } catch(e: any) {
-    console.log('✗ OpenAI FAILED:', e.message?.slice(0, 200))
+  } catch(e) {
+    console.log('✗ OpenAI FAILED:', e instanceof Error ? e.message.slice(0, 200) : String(e))
   }
 
   // Claude
   try {
     const r = await runClaude(req)
     console.log('✓ Claude OK:', r.text.slice(0, 150))
-  } catch(e: any) {
-    console.log('✗ Claude FAILED:', e.message?.slice(0, 200))
+  } catch(e) {
+    console.log('✗ Claude FAILED:', e instanceof Error ? e.message.slice(0, 200) : String(e))
   }
 
   process.exit(0)

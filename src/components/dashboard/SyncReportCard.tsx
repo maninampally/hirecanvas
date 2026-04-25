@@ -58,7 +58,7 @@ export function SyncReportCard({
           <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">Processed</span><p className="text-slate-900 font-semibold">{totals.processed}</p></div>
           <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">Created</span><p className="text-slate-900 font-semibold">{totals.created}</p></div>
           <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">Updated</span><p className="text-slate-900 font-semibold">{totals.updated}</p></div>
-          <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">Skipped</span><p className="text-slate-900 font-semibold">{totals.skipped}</p></div>
+          <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">Queued for AI Analysis</span><p className="text-slate-900 font-semibold">{totals.skipped}</p></div>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -83,7 +83,7 @@ export function SyncReportCard({
           ))}
         </div>
 
-        <Link href="/jobs">
+        <Link href="/applications">
           <Button variant="outline" className="w-full text-xs">
             Open jobs for full timeline
           </Button>

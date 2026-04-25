@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
 
 const protectedPaths = [
-  '/jobs',
+  "/applications",
   '/contacts',
   '/outreach',
   '/reminders',
@@ -20,46 +20,10 @@ function isProtectedPath(pathname: string) {
 }
 
 const AUTH_PAGES = ['/login', '/register', '/forgot-password']
+const EMAIL_VERIFICATION_PAGE = '/verify-email'
 
-function isExpired(expiresAt: string) {
-  const parsed = new Date(expiresAt)
-  if (Number.isNaN(parsed.getTime())) return true
-  return parsed.getTime() <= Date.now()
-}
-
-async function upsertTrackedSession(
-  supabase: ReturnType<typeof createServerClient>,
-  request: NextRequest,
-  response: NextResponse,
-  userId: string,
-  token?: string
-) {
-  const sessionToken = token ?? crypto.randomUUID()
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-  const userAgent = request.headers.get('user-agent')
-  const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null
-
-  const { error } = await supabase.from('user_sessions').upsert(
-    {
-      user_id: userId,
-      session_token: sessionToken,
-      user_agent: userAgent,
-      ip_address: ipAddress,
-      last_activity: new Date().toISOString(),
-      expires_at: expiresAt,
-    },
-    { onConflict: 'session_token' }
-  )
-
-  if (!error) {
-    response.cookies.set('hc_session_token', sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 30 * 24 * 60 * 60,
-    })
-  }
+function isEmailVerified(user: { email_confirmed_at?: string | null }) {
+  return Boolean(user.email_confirmed_at)
 }
 
 export async function proxy(request: NextRequest) {
@@ -94,44 +58,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isProtected = isProtectedPath(pathname)
   const isAuthPage = AUTH_PAGES.includes(pathname)
-
-  if (isProtected && user) {
-    const sessionCookie = request.cookies.get('hc_session_token')?.value
-
-    if (sessionCookie) {
-      const { data: sessionRow, error: sessionLookupError } = await supabase
-        .from('user_sessions')
-        .select('id,expires_at')
-        .eq('user_id', user.id)
-        .eq('session_token', sessionCookie)
-        .maybeSingle<{ id: string; expires_at: string }>()
-
-      // Only force sign-out when we positively know the tracked session is expired.
-      // Missing rows can happen after data migrations or cleanup; recover instead.
-      if (sessionRow && isExpired(sessionRow.expires_at)) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/login'
-        url.searchParams.set('redirectedFrom', pathname)
-
-        await supabase.auth.signOut()
-        const logoutResponse = NextResponse.redirect(url)
-        logoutResponse.cookies.delete('hc_session_token')
-        return logoutResponse
-      }
-
-      if (!sessionLookupError && sessionRow) {
-        await supabase
-          .from('user_sessions')
-          .update({ last_activity: new Date().toISOString() })
-          .eq('id', sessionRow.id)
-          .eq('user_id', user.id)
-      } else if (!sessionLookupError) {
-        await upsertTrackedSession(supabase, request, response, user.id, sessionCookie)
-      }
-    } else {
-      await upsertTrackedSession(supabase, request, response, user.id)
-    }
-  }
+  const isVerifyEmailPage = pathname === EMAIL_VERIFICATION_PAGE
 
   if (isProtected && !user) {
     const url = request.nextUrl.clone()
@@ -140,9 +67,28 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  if (user && isProtected && !isEmailVerified(user) && !isVerifyEmailPage) {
+    const url = request.nextUrl.clone()
+    url.pathname = EMAIL_VERIFICATION_PAGE
+    url.searchParams.set('redirectedFrom', pathname)
+    return NextResponse.redirect(url)
+  }
+
   if (isAuthPage && user) {
     const url = request.nextUrl.clone()
-    url.pathname = '/'
+    if (isEmailVerified(user)) {
+      url.pathname = '/'
+      url.search = ''
+    } else {
+      url.pathname = EMAIL_VERIFICATION_PAGE
+      url.search = ''
+    }
+    return NextResponse.redirect(url)
+  }
+
+  if (isVerifyEmailPage && user && isEmailVerified(user)) {
+    const url = request.nextUrl.clone()
+    url.pathname = request.nextUrl.searchParams.get('redirectedFrom') || '/dashboard'
     url.search = ''
     return NextResponse.redirect(url)
   }

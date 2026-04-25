@@ -23,7 +23,7 @@ A production-grade SaaS application for tracking job applications, syncing Gmail
 | Queue | BullMQ + ioredis | 5.x |
 | Optional NLP Service | FastAPI (Python) | 0.116.x |
 | Icons | react-icons | 5.x |
-| Font | Plus Jakarta Sans | Google Fonts |
+| Font | Sora + Manrope | Google Fonts |
 
 ---
 
@@ -60,14 +60,14 @@ A production-grade SaaS application for tracking job applications, syncing Gmail
    See `.env.example` for the full list (Gmail OAuth, AI keys, Stripe, AWS SES, etc.).
 
 4. **Run database migrations**
-   In the Supabase SQL Editor, execute each migration file in order:
+   In the Supabase SQL Editor, run each file in order (001 → 027):
    ```
    supabase/migrations/001_app_users.sql
-   supabase/migrations/002_user_plans.sql
+   supabase/migrations/002_mfa_config.sql
    ...
-   supabase/migrations/036_billing_events.sql
+   supabase/migrations/027_referral_events.sql
    ```
-   There are **36 migration files** numbered 001–036. Run them sequentially.
+   There are **27 files** — one per table. Run them sequentially.
 
 5. **Start development server**
    ```bash
@@ -136,7 +136,7 @@ hirecanvas/
 │   ├── hooks/                        # useSyncStatus
 │   ├── stores/                       # Zustand: authStore
 │   └── types/                        # Shared TypeScript types
-├── supabase/migrations/              # 36 SQL migration files (001–036)
+├── supabase/migrations/              # 41 SQL migration files (001–041)
 ├── nginx/hirecanvas.conf             # Nginx reverse proxy config
 ├── docker-compose.yml                # Docker dev setup
 └── Dockerfile                        # Container image
@@ -151,6 +151,8 @@ npm run dev              # Start development server
 npm run build            # Build for production
 npm run start            # Start production server
 npm run lint             # Run ESLint
+npm run test:unit        # Run unit tests (AI router, sanitizer)
+npm run test:e2e         # Run Playwright e2e smoke tests
 npm run worker:sync      # Start Gmail sync worker (BullMQ)
 npm run worker:extract   # Start AI extraction worker (BullMQ)
 npm run worker:nudge     # Start follow-up nudge worker (BullMQ)
@@ -180,7 +182,7 @@ npm run worker:digest    # Start daily digest worker (BullMQ)
 - **Stripe Billing** — Checkout session API, customer portal API, signed webhook handling
 - **Queue Infrastructure** — BullMQ sync, extraction, nudge, and digest workers bootstrapped
 - **Realtime** — Sync status subscription hook
-- **Database** — 36 migrations, RLS on all tables
+- **Database** — 41 migrations, RLS on all tables
 - **Deployment Config** — Docker, Nginx, CI/CD template
 
 ### ⏳ Not Yet Implemented
@@ -196,7 +198,6 @@ See [IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md) for the prioritized backlog
 
 | File | Purpose |
 |------|---------|
-| **[PROJECT_STATE.md](PROJECT_STATE.md)** | Architecture blueprint & single source of truth |
 | **[IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md)** | Notes on shipped vs optional follow-ups |
 
 ---
@@ -204,7 +205,7 @@ See [IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md) for the prioritized backlog
 ## Design
 
 - Light mint background (`#f0fdfb`), teal accents (`#14b8a6`)
-- Plus Jakarta Sans font
+- Sora + Manrope typography
 - Light teal sidebar — never dark
 - Table-based views — no Kanban
 - Status badges with semantic colors
@@ -213,7 +214,7 @@ See [IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md) for the prioritized backlog
 
 ## Contributing
 
-Read `PROJECT_STATE.md` before writing any code — it contains architecture decisions, conventions, and explicit do/don't rules for development.
+Read `IMPLEMENTATION_GAPS.md` before writing any code — it contains current priorities and implementation guidance.
 
 ## License
 

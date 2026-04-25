@@ -13,9 +13,15 @@ export type SyncStatus = {
   updated_at: string
 }
 
+export type QueueStatus = {
+  counts: { waiting: number; active: number; completed: number; failed: number; delayed: number }
+  isExtracting: boolean
+}
+
 export function useSyncStatus(userId?: string) {
   const supabase = useMemo(() => createClient(), [])
   const [status, setStatus] = useState<SyncStatus | null>(null)
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null)
   const [loadedUserId, setLoadedUserId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
@@ -28,12 +34,23 @@ export function useSyncStatus(userId?: string) {
     }
 
     const refreshStatus = async () => {
-      const response = await fetch('/api/sync/status')
-      if (!response.ok) return
+      try {
+        const [statusRes, queueRes] = await Promise.all([
+          fetch('/api/sync/status'),
+          fetch('/api/sync/queue')
+        ])
 
-      const data = (await response.json()) as { status: SyncStatus | null }
-      if (mounted) {
-        setStatus(data.status)
+        if (statusRes.ok) {
+          const data = (await statusRes.json()) as { status: SyncStatus | null }
+          if (mounted) setStatus(data.status)
+        }
+
+        if (queueRes.ok) {
+          const qData = (await queueRes.json()) as QueueStatus
+          if (mounted) setQueueStatus(qData)
+        }
+      } catch (err) {
+        console.error('Error fetching sync status:', err)
       }
     }
 
@@ -83,10 +100,15 @@ export function useSyncStatus(userId?: string) {
 
   const loading = Boolean(userId) && loadedUserId !== userId
   const visibleStatus = userId ? status : null
+  const isSyncing = visibleStatus?.status === 'in_progress'
+  const isExtracting = queueStatus?.isExtracting || false
 
   return {
     status: visibleStatus,
+    queueStatus,
     loading,
-    syncInProgress: visibleStatus?.status === 'in_progress',
+    syncInProgress: isSyncing,
+    extractionInProgress: isExtracting,
+    isBusy: isSyncing || isExtracting,
   }
 }

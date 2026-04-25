@@ -278,9 +278,14 @@ export default async function Home() {
                 <h4 className={`text-xl font-bold mb-1 ${plan.highlighted ? 'text-white' : 'text-slate-900'}`}>{plan.name}</h4>
                 <p className={`text-sm mb-4 ${plan.highlighted ? 'text-teal-100' : 'text-slate-500'}`}>{plan.desc}</p>
                 <div className={`text-4xl font-extrabold mb-6 ${plan.highlighted ? 'text-white' : 'text-slate-900'}`}>
-                  ${plan.price}
+                  ${plan.priceMonthly}
                   <span className={`text-base font-medium ${plan.highlighted ? 'text-teal-200' : 'text-slate-400'}`}>/mo</span>
                 </div>
+                {plan.priceYearly ? (
+                  <p className={`mb-4 text-xs ${plan.highlighted ? 'text-teal-100' : 'text-slate-500'}`}>
+                    or ${plan.priceYearly}/year (save ~20%)
+                  </p>
+                ) : null}
                 <ul className="text-left space-y-3 mb-8">
                   {plan.features.map((f, j) => (
                     <li key={j} className="flex items-start gap-2.5 text-sm">

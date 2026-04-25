@@ -37,6 +37,17 @@ async function findUserByCustomerId(customerId: string) {
   return data || null
 }
 
+async function hasProcessedStripeEvent(eventId: string) {
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('billing_events')
+    .select('stripe_event_id')
+    .eq('stripe_event_id', eventId)
+    .maybeSingle<{ stripe_event_id: string }>()
+
+  return Boolean(data)
+}
+
 async function persistBillingEvent(params: {
   userId: string | null
   event: Stripe.Event
@@ -96,6 +107,11 @@ async function updateUserTierBySubscription(subscription: Stripe.Subscription, c
 }
 
 export async function handleStripeWebhookEvent(event: Stripe.Event) {
+  const alreadyProcessed = await hasProcessedStripeEvent(event.id)
+  if (alreadyProcessed) {
+    return
+  }
+
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session
     const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id

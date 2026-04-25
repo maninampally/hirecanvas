@@ -364,6 +364,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: `stage1_rejected:${stage1.parsed.email_type}`,
     })
     await writeAiUsage(userId, params.userTier, trace)
@@ -378,6 +379,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: `stage1_type_blocked:${stage1.parsed.email_type}`,
     })
     await writeAiUsage(userId, params.userTier, trace)
@@ -395,6 +397,7 @@ export async function runExtractionPipeline(params: {
         fromAddress: email.from,
         subject: email.subject,
         contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
         reason: `stage1_lifecycle_but_low_confidence:${stage1.parsed.confidence.toFixed(2)}`,
         extraction: { stage1: stage1.parsed },
       })
@@ -408,6 +411,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: `stage1_low_confidence:${stage1.parsed.confidence.toFixed(2)}`,
     })
     await writeAiUsage(userId, params.userTier, trace)
@@ -421,6 +425,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: `stage1_borderline:${stage1.parsed.confidence.toFixed(2)}`,
       extraction: { stage1: stage1.parsed },
     })
@@ -438,6 +443,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: 'stage2_parse_failure',
       extraction: { stage1: stage1.parsed },
     })
@@ -468,6 +474,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: [
         missingCompany ? 'missing_company' : null,
         missingStatus ? 'missing_status' : null,
@@ -500,6 +507,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: 'status_evidence_not_in_body',
       extraction: { stage1: stage1.parsed, stage2: extracted, stage3 },
     })
@@ -515,6 +523,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: stage3.rejection_reason || `stage3_rejected:${stage3.final_confidence.toFixed(2)}`,
       extraction: { stage1: stage1.parsed, stage2: extracted, stage3 },
     })
@@ -535,6 +544,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: 'post_correction_missing_required_fields',
       extraction: { stage1: stage1.parsed, stage2: extracted, stage3 },
     })
@@ -550,6 +560,7 @@ export async function runExtractionPipeline(params: {
       fromAddress: email.from,
       subject: email.subject,
       contentHash: email.contentHash,
+      receivedAt: email.receivedAtIso,
       reason: `unmapped_status:${finalStatus}`,
       extraction: { stage1: stage1.parsed, stage2: extracted, stage3 },
     })
@@ -608,7 +619,7 @@ export async function runExtractionPipeline(params: {
       type: 'status_change_detected',
       title: `${verified.company}: ${upsertResult.newStatus}`,
       message: `Auto-detected status ${upsertResult.previousStatus || 'new'} → ${upsertResult.newStatus} for ${verified.company}.`,
-      action_url: `/jobs/${upsertResult.jobId}`,
+      action_url: `/applications/${upsertResult.jobId}`,
     })
   }
 

@@ -7,6 +7,9 @@ export type SyncJobPayload = {
   userId: string
   trigger: 'manual' | 'daily_cron'
   force?: boolean
+  fromDate?: string
+  toDate?: string
+  timezoneOffsetMinutes?: number
 }
 
 let syncQueue: Queue<SyncJobPayload> | null = null

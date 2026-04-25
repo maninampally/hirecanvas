@@ -26,7 +26,7 @@ type CommandPaletteProps = {
 
 const commandItems: { label: string; href: string; Icon: IconType }[] = [
   { label: 'Overview', href: '/dashboard', Icon: MdDashboard },
-  { label: 'Applications', href: '/jobs', Icon: MdWork },
+  { label: 'Applications', href: "/applications", Icon: MdWork },
   { label: 'Contacts', href: '/contacts', Icon: MdPeople },
   { label: 'Outreach', href: '/outreach', Icon: MdOutlineEmail },
   { label: 'Reminders', href: '/reminders', Icon: MdNotifications },

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { enforceRateLimit } from '@/lib/security/rateLimit'
 import { createClient } from '@/lib/supabase/server'
 import { getPriceIdForTier, getStripeClient } from '@/lib/stripe/client'
 
@@ -12,11 +13,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const rateLimit = await enforceRateLimit(user.id, 'checkout_create', 5, 60)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many checkout attempts. Please wait and try again.' },
+      { status: 429 }
+    )
+  }
+
   const body = (await request.json().catch(() => ({}))) as {
     tier?: 'pro' | 'elite'
+    interval?: 'month' | 'year'
     promotionCode?: string
   }
   const targetTier = body.tier
+  const interval = body.interval === 'year' ? 'year' : 'month'
   const rawPromo = typeof body.promotionCode === 'string' ? body.promotionCode.trim() : ''
 
   if (!targetTier || !['pro', 'elite'].includes(targetTier)) {
@@ -75,7 +86,7 @@ export async function POST(request: NextRequest) {
     customer: customerId,
     line_items: [
       {
-        price: getPriceIdForTier(targetTier),
+        price: getPriceIdForTier(targetTier, interval),
         quantity: 1,
       },
     ],
@@ -84,6 +95,7 @@ export async function POST(request: NextRequest) {
     metadata: {
       userId: user.id,
       tier: targetTier,
+      interval,
     },
     ...(discounts ? { discounts } : {}),
     allow_promotion_codes: allowPromotionCodes,

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import { Select } from '@/components/ui/select'
 import { TableSkeletonRows } from '@/components/ui/table-skeleton-rows'
 import { toast } from 'sonner'
@@ -262,11 +263,9 @@ export default function RemindersPage() {
                   onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
                 />
 
-                <Input
-                  required
-                  type="date"
+                <DateInput
                   value={form.due_date || ''}
-                  onChange={(e) => setForm((prev) => ({ ...prev, due_date: e.target.value }))}
+                  onChange={(value) => setForm((prev) => ({ ...prev, due_date: value }))}
                 />
               </div>
 

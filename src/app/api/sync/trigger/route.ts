@@ -1,11 +1,33 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { enqueueSyncJob } from '@/lib/queue/syncQueue'
+import { processSyncJob } from '@/lib/sync/processSyncJob'
 import { recordAuditEvent } from '@/lib/security/audit'
 import { enforceRateLimit } from '@/lib/security/rateLimit'
 import { acquireSyncLock, releaseSyncLock } from '@/lib/security/syncLock'
 
 type AppTier = 'free' | 'pro' | 'elite' | 'admin'
+
+type SyncTriggerRequestBody = {
+  fromDate?: string
+  toDate?: string
+  timezoneOffsetMinutes?: number
+}
+
+function normalizeDateInput(value: unknown) {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return undefined
+  return trimmed
+}
+
+function normalizeTimezoneOffset(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const rounded = Math.round(value)
+  if (rounded < -14 * 60 || rounded > 14 * 60) return undefined
+  return rounded
+}
 
 function getSyncLimitForTier(tier: AppTier) {
   if (tier === 'pro') {
@@ -51,6 +73,16 @@ export async function POST(req: Request) {
   }
 
   requestMeta.userAgent = null
+  let requestBody: SyncTriggerRequestBody = {}
+  try {
+    requestBody = (await req.json()) as SyncTriggerRequestBody
+  } catch {
+    requestBody = {}
+  }
+
+  const fromDate = normalizeDateInput(requestBody.fromDate)
+  const toDate = normalizeDateInput(requestBody.toDate)
+  const timezoneOffsetMinutes = normalizeTimezoneOffset(requestBody.timezoneOffsetMinutes)
 
   const { data: appUser, error: appUserError } = await supabase
     .from('app_users')
@@ -185,20 +217,42 @@ export async function POST(req: Request) {
       throw syncStatusError
     }
 
-    const job = await enqueueSyncJob({
+    const payload = {
       userId: user.id,
-      trigger: 'manual',
-    })
+      trigger: 'manual' as const,
+      force: Boolean(fromDate || toDate),
+      ...(fromDate ? { fromDate } : {}),
+      ...(toDate ? { toDate } : {}),
+      ...(typeof timezoneOffsetMinutes === 'number' ? { timezoneOffsetMinutes } : {}),
+    }
+
+    let jobId: string | number | null = null
+    let processedInline = false
+    try {
+      const job = await enqueueSyncJob(payload)
+      jobId = job.id || null
+    } catch (queueError) {
+      if (process.env.NODE_ENV !== 'production') {
+        // Local resilience: process immediately if Redis queue is unavailable.
+        await processSyncJob(payload)
+        processedInline = true
+      } else {
+        throw queueError
+      }
+    }
 
     await recordAuditEvent({
       userId: user.id,
       eventType: 'sync_triggered',
       action: 'sync_enqueue',
       resourceType: 'sync_status',
-      resourceId: String(job.id || ''),
+      resourceId: String(jobId || ''),
       newValues: {
         tier,
         remaining: rateLimitResult.remaining,
+        processedInline,
+        ...(fromDate || toDate ? { range: { fromDate: fromDate || null, toDate: toDate || null } } : {}),
+        timezoneOffsetMinutes: typeof timezoneOffsetMinutes === 'number' ? timezoneOffsetMinutes : null,
       },
       ipAddress: requestMeta.ipAddress,
       userAgent: requestMeta.userAgent,
@@ -206,8 +260,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        message: 'Sync started',
-        jobId: job.id,
+        message: processedInline ? 'Sync completed inline (dev fallback)' : 'Sync started',
+        jobId,
+        processedInline,
+        fromDate: fromDate || null,
+        toDate: toDate || null,
+        timezoneOffsetMinutes: typeof timezoneOffsetMinutes === 'number' ? timezoneOffsetMinutes : null,
         remaining: rateLimitResult.remaining,
         resetInSeconds: rateLimitResult.resetInSeconds,
       },

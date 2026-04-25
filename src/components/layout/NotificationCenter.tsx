@@ -47,7 +47,7 @@ export function NotificationCenter() {
             <p className="text-sm font-semibold text-slate-900">Notifications</p>
             <button
               type="button"
-              className="text-xs text-indigo-600 hover:text-indigo-700"
+              className="text-xs text-teal-600 hover:text-teal-700"
               onClick={async () => {
                 await markAllNotificationsRead()
                 queryClient.setQueryData<{ items: NotificationItem[]; unreadCount: number }>(
@@ -94,7 +94,7 @@ export function NotificationCenter() {
                     setOpen(false)
                     if (item.action_url) router.push(item.action_url)
                   }}
-                  className={`w-full border-b border-slate-100 px-3 py-2.5 text-left hover:bg-slate-50 ${item.is_read ? '' : 'bg-indigo-50/40'}`}
+                  className={`w-full border-b border-slate-100 px-3 py-2.5 text-left hover:bg-slate-50 ${item.is_read ? '' : 'bg-teal-50/40'}`}
                 >
                   <p className="text-sm font-medium text-slate-900">{item.title}</p>
                   {item.message && <p className="mt-0.5 text-xs text-slate-600">{item.message}</p>}

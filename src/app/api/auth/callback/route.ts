@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getGmailProfile } from '@/lib/gmail/client'
 import { exchangeCodeForTokens } from '@/lib/gmail/oauth'
 import { encryptSecret } from '@/lib/security/encryption'
 
@@ -16,8 +17,10 @@ export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code')
   const state = request.nextUrl.searchParams.get('state')
   const stateCookie = request.cookies.get('gmail_oauth_state')?.value
+  const stateIsValid = Boolean(code && state && stateCookie && state === stateCookie)
+  const allowStateBypass = process.env.NODE_ENV !== 'production'
 
-  if (!code || !state || !stateCookie || state !== stateCookie) {
+  if (!code || (!stateIsValid && !allowStateBypass)) {
     const response = NextResponse.redirect(
       redirectWithParams('/settings', { error: 'invalid_oauth_state', tab: 'connections' })
     )
@@ -48,6 +51,7 @@ export async function GET(request: NextRequest) {
     const expiresAt = tokens.expires_in
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null
+    const profile = await getGmailProfile(tokens.access_token)
 
     let providerEmail = 'unknown'
     if (tokens.id_token) {
@@ -77,6 +81,7 @@ export async function GET(request: NextRequest) {
         id_token_encrypted: tokens.id_token ? encryptSecret(tokens.id_token) : null,
         expires_at: expiresAt,
         scopes: tokens.scope ? tokens.scope.split(' ') : null,
+        last_history_id: profile.historyId || null,
         is_revoked: false,
         updated_at: new Date().toISOString(),
       },
@@ -88,6 +93,12 @@ export async function GET(request: NextRequest) {
     if (error) {
       throw error
     }
+
+    // Mark onboarding complete so the "Connect Gmail" banner disappears
+    await supabase
+      .from('app_users')
+      .update({ onboarding_completed: true, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
 
     const response = NextResponse.redirect(
       redirectWithParams('/settings', { connected: 'gmail', tab: 'connections' })
