@@ -119,7 +119,7 @@ function jobCalendarDateKey(job: JobRow): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
     return raw.slice(0, 10)
   }
-  const fallback = toDateValue(job.created_at)
+  const fallback = toDateValue(job.applied_date)
   return fallback ? toDateKey(fallback) : null
 }
 

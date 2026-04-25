@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import { Select } from '@/components/ui/select'
 import { TableSkeletonRows } from '@/components/ui/table-skeleton-rows'
 import { toast } from 'sonner'
@@ -252,10 +253,9 @@ export default function OutreachPage() {
                   value={form.contact_email || ''}
                   onChange={(e) => setForm((prev) => ({ ...prev, contact_email: e.target.value }))}
                 />
-                <Input
-                  type="date"
+                <DateInput
                   value={form.outreach_date || ''}
-                  onChange={(e) => setForm((prev) => ({ ...prev, outreach_date: e.target.value }))}
+                  onChange={(value) => setForm((prev) => ({ ...prev, outreach_date: value }))}
                 />
               </div>
 

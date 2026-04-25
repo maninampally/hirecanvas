@@ -55,7 +55,7 @@ export async function GET() {
       .from('sync_status')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'in_progress'),
-    service.from('ai_usage').select('tokens_used,cost_cents').limit(500),
+    service.from('ai_usage').select('feature,tokens_used,cost_cents').limit(500),
     service.from('billing_events').select('user_id,event_type,amount_cents,status,stripe_subscription_id,created_at').limit(2000),
     service
       .from('audit_log')
@@ -72,6 +72,22 @@ export async function GET() {
   const usageRows = aiUsageRows.data || []
   const totalAiCostCents = usageRows.reduce((sum, row) => sum + (row.cost_cents || 0), 0)
   const totalAiTokens = usageRows.reduce((sum, row) => sum + (row.tokens_used || 0), 0)
+  const aiUsageByFeature = usageRows.reduce<Record<string, { count: number; cost_cents: number; tokens: number }>>(
+    (acc, row) => {
+      const feature = row.feature || 'unknown'
+      if (!acc[feature]) {
+        acc[feature] = { count: 0, cost_cents: 0, tokens: 0 }
+      }
+      acc[feature].count += 1
+      acc[feature].cost_cents += row.cost_cents || 0
+      acc[feature].tokens += row.tokens_used || 0
+      return acc
+    },
+    {}
+  )
+  const avgCostPerExtractionCents = aiUsageByFeature.email_extraction?.count
+    ? Number((aiUsageByFeature.email_extraction.cost_cents / aiUsageByFeature.email_extraction.count).toFixed(4))
+    : 0
 
   const events = (!billingEventRows.error || isMissingRelationError(billingEventRows.error)
     ? billingEventRows.data || []
@@ -138,7 +154,9 @@ export async function GET() {
       ltvCents,
       infraEstimateCents,
       netMarginPercent,
+      avgCostPerExtractionCents,
     },
+    aiUsageByFeature,
     recentAudit: recentAuditRows.data || [],
     recentSync: recentSyncRows.data || [],
   })

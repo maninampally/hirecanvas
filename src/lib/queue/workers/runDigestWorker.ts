@@ -1,15 +1,20 @@
 import { getDigestQueue } from '@/lib/queue/digestQueue'
 import { createDigestWorker } from '@/lib/queue/workers/digestWorker'
 import { processDigestJob } from '@/lib/digest/processDigestJob'
+import { logError, logInfo } from '@/lib/observability/logger'
+import { captureSentryException, initSentry } from '@/lib/observability/sentry'
+
+initSentry('worker-digest')
 
 const worker = createDigestWorker(processDigestJob)
 
 worker.on('completed', (job) => {
-  console.log(`[digest-worker] completed job ${job.id}`)
+  logInfo('digest_worker_completed', { jobId: job.id })
 })
 
 worker.on('failed', (job, error) => {
-  console.error(`[digest-worker] failed job ${job?.id}: ${error.message}`)
+  logError('digest_worker_failed', error, { jobId: job?.id })
+  captureSentryException(error, { jobId: job?.id })
 })
 
 async function registerSchedule() {
@@ -26,6 +31,9 @@ async function registerSchedule() {
   )
 }
 
-void registerSchedule()
+void registerSchedule().catch((error) => {
+  logError('digest_schedule_registration_failed', error)
+  captureSentryException(error)
+})
 
-console.log('[digest-worker] running')
+logInfo('digest_worker_running')

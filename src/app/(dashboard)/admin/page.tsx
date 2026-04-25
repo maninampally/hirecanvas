@@ -19,7 +19,16 @@ type AdminOverviewResponse = {
     ltvCents: number
     infraEstimateCents: number
     netMarginPercent: number
+    avgCostPerExtractionCents: number
   }
+  aiUsageByFeature: Record<
+    string,
+    {
+      count: number
+      cost_cents: number
+      tokens: number
+    }
+  >
   recentAudit: Array<{
     id: string
     event_type: string
@@ -220,7 +229,7 @@ export default function AdminPage() {
         <CardHeader>
           <CardTitle>AI Usage Snapshot</CardTitle>
         </CardHeader>
-        <CardContent className="grid md:grid-cols-2 gap-4">
+        <CardContent className="grid md:grid-cols-3 gap-4">
           <div>
             <p className="text-sm text-slate-600">Estimated AI Cost</p>
             <p className="text-2xl font-bold text-slate-900">
@@ -230,6 +239,33 @@ export default function AdminPage() {
           <div>
             <p className="text-sm text-slate-600">Approx Tokens Processed</p>
             <p className="text-2xl font-bold text-slate-900">{metrics?.totalAiTokens ?? 0}</p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-600">Avg extraction cost</p>
+            <p className="text-2xl font-bold text-slate-900">
+              {(metrics?.avgCostPerExtractionCents ?? 0).toFixed(4)}c
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>AI Usage Breakdown</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {Object.entries(overview?.aiUsageByFeature || {}).length === 0 && !loading && (
+              <p className="text-slate-600">No AI usage records yet.</p>
+            )}
+            {Object.entries(overview?.aiUsageByFeature || {}).map(([feature, value]) => (
+              <div key={feature} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <p className="font-medium text-slate-900">{feature}</p>
+                <p className="text-slate-600">
+                  {value.count} calls • ${(value.cost_cents / 100).toFixed(2)} • {value.tokens} tokens
+                </p>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

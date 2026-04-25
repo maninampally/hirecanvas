@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import {
@@ -23,7 +23,9 @@ import { WeeklyStrategyReport } from '@/components/dashboard/WeeklyStrategyRepor
 import { GoalTracker } from '@/components/dashboard/GoalTracker'
 import { AchievementBadges } from '@/components/dashboard/AchievementBadges'
 import { Badge } from '@/components/ui/badge'
+import { DateInput } from '@/components/ui/date-input'
 import { useAuthStore } from '@/stores/authStore'
+import { useSyncStatus } from '@/hooks/useSyncStatus'
 import {
   MdWork,
   MdHandshake,
@@ -42,6 +44,7 @@ import {
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
+  const { status: syncStatus, syncInProgress, extractionInProgress, queueStatus, isBusy } = useSyncStatus(user?.id)
   const [isLoading, setIsLoading] = useState(true)
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null)
   const [analyticsError, setAnalyticsError] = useState<string | null>(null)
@@ -51,25 +54,79 @@ export default function DashboardPage() {
   const [syncReportError, setSyncReportError] = useState<string | null>(null)
   const [isSyncLoading, setIsSyncLoading] = useState(true)
   const [isTriggeringSync, setIsTriggeringSync] = useState(false)
+  const [syncRequested, setSyncRequested] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [syncFromDate, setSyncFromDate] = useState('')
+  const [syncToDate, setSyncToDate] = useState('')
+  const [syncRangePreset, setSyncRangePreset] = useState<'custom' | 'last7' | 'last30' | 'thisMonth'>('custom')
+  const [isStoppingSync, setIsStoppingSync] = useState(false)
+
+  const toDateInput = (date: Date) => {
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+
+  const applyRangePreset = (preset: 'custom' | 'last7' | 'last30' | 'thisMonth') => {
+    setSyncRangePreset(preset)
+    if (preset === 'custom') return
+
+    const now = new Date()
+    const to = toDateInput(now)
+
+    if (preset === 'last7') {
+      const fromDate = new Date(now)
+      fromDate.setDate(now.getDate() - 6)
+      setSyncFromDate(toDateInput(fromDate))
+      setSyncToDate(to)
+      return
+    }
+
+    if (preset === 'last30') {
+      const fromDate = new Date(now)
+      fromDate.setDate(now.getDate() - 29)
+      setSyncFromDate(toDateInput(fromDate))
+      setSyncToDate(to)
+      return
+    }
+
+    const fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
+    setSyncFromDate(toDateInput(fromDate))
+    setSyncToDate(to)
+  }
+
+  const syncButtonLocked = isTriggeringSync || isBusy || syncRequested
+
+  useEffect(() => {
+    if (!syncRequested) return
+    if (syncStatus?.status === 'in_progress') return
+    if (syncStatus?.status === 'completed' || syncStatus?.status === 'failed') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSyncRequested(false)
+    }
+  }, [syncRequested, syncStatus?.status])
+
+  const loadDashboardData = useCallback(async () => {
+    setAnalyticsError(null)
+    setIsSyncLoading(true)
+    const [data, jobs, report] = await Promise.all([
+      getDashboardAnalytics(),
+      getRecentJobs(6),
+      getSyncReport(syncWindow),
+    ])
+    setAnalytics(data)
+    setRecentJobs(jobs)
+    setSyncReport(report)
+    setSyncReportError(null)
+  }, [syncWindow])
 
   useEffect(() => {
     let active = true
 
     async function loadAnalytics() {
       try {
-        setAnalyticsError(null)
-        setIsSyncLoading(true)
-        const [data, jobs, report] = await Promise.all([
-          getDashboardAnalytics(),
-          getRecentJobs(6),
-          getSyncReport(syncWindow),
-        ])
-        if (active) {
-          setAnalytics(data)
-          setRecentJobs(jobs)
-          setSyncReport(report)
-          setSyncReportError(null)
-        }
+        await loadDashboardData()
       } catch (error) {
         if (!active) return
         const message = error instanceof Error ? error.message : 'Failed to load analytics'
@@ -88,7 +145,20 @@ export default function DashboardPage() {
     return () => {
       active = false
     }
-  }, [syncWindow])
+  }, [loadDashboardData])
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    try {
+      await loadDashboardData()
+      toast.success('Dashboard refreshed')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to refresh dashboard')
+    } finally {
+      setIsRefreshing(false)
+      setIsLoading(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -160,24 +230,53 @@ export default function DashboardPage() {
   const handleManualSync = async () => {
     setIsTriggeringSync(true)
     try {
-      const response = await fetch('/api/sync/trigger', { method: 'POST' })
+      const payload = {
+        ...(syncFromDate ? { fromDate: syncFromDate } : {}),
+        ...(syncToDate ? { toDate: syncToDate } : {}),
+        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+      }
+      const response = await fetch('/api/sync/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
       const data = (await response.json()) as {
         message?: string
         error?: string
         remaining?: number
+        fromDate?: string | null
+        toDate?: string | null
       }
 
       if (!response.ok) throw new Error(data.error || 'Unable to start sync')
+      setSyncRequested(true)
 
       toast.success(
-        typeof data.remaining === 'number'
-          ? `Sync started. Remaining: ${data.remaining}`
-          : data.message || 'Sync started'
+        data.fromDate || data.toDate
+          ? `Range sync started (${data.fromDate || '...'} to ${data.toDate || 'today'})`
+          : typeof data.remaining === 'number'
+            ? `Sync started. Remaining: ${data.remaining}`
+            : data.message || 'Sync started'
       )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to start sync')
     } finally {
       setIsTriggeringSync(false)
+    }
+  }
+
+
+  const handleStopSync = async () => {
+    setIsStoppingSync(true)
+    try {
+      const response = await fetch('/api/sync/stop', { method: 'POST' })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to stop sync')
+      toast.success('Sync stopped')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to stop sync')
+    } finally {
+      setIsStoppingSync(false)
     }
   }
 
@@ -203,15 +302,114 @@ export default function DashboardPage() {
             Here&apos;s your job search overview for today.
           </p>
         </div>
-        <Button
-          type="button"
-          onClick={handleManualSync}
-          disabled={isTriggeringSync}
-          className="inline-flex items-center gap-2 self-start"
-        >
-          <MdSync className={isTriggeringSync ? 'animate-spin-slow' : ''} />
-          {isTriggeringSync ? 'Syncing...' : 'Sync Jobs'}
-        </Button>
+        <div className="flex flex-wrap items-end gap-2 self-start">
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-slate-500">From</label>
+            <DateInput
+              value={syncFromDate}
+              onChange={(value) => {
+                setSyncRangePreset('custom')
+                setSyncFromDate(value)
+              }}
+              className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-slate-500">To</label>
+            <DateInput
+              value={syncToDate}
+              onChange={(value) => {
+                setSyncRangePreset('custom')
+                setSyncToDate(value)
+              }}
+              className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-slate-500">Range</label>
+            <select
+              value={syncRangePreset}
+              onChange={(event) =>
+                applyRangePreset(
+                  event.target.value as 'custom' | 'last7' | 'last30' | 'thisMonth'
+                )
+              }
+              className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+            >
+              <option value="custom">Custom</option>
+              <option value="last7">Last 7 days</option>
+              <option value="last30">Last 30 days</option>
+              <option value="thisMonth">This month</option>
+            </select>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setSyncRangePreset('custom')
+              setSyncFromDate('')
+              setSyncToDate('')
+            }}
+            className="h-9 px-2 text-xs text-slate-500"
+          >
+            Clear
+          </Button>
+          <Button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            variant="outline"
+            className="inline-flex items-center gap-2"
+          >
+            <MdSync className={isRefreshing ? 'animate-spin-slow' : ''} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </Button>
+          <Button
+            type="button"
+            onClick={handleManualSync}
+            disabled={syncButtonLocked}
+            className="inline-flex items-center gap-2 min-w-[120px] justify-center"
+          >
+            <MdSync className={isTriggeringSync ? 'animate-spin-slow' : ''} />
+            {syncButtonLocked ? 'Syncing...' : 'Sync Jobs'}
+          </Button>
+          {syncButtonLocked && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleStopSync}
+              disabled={isStoppingSync}
+              className="inline-flex items-center gap-2 text-rose-600 border-rose-200 hover:bg-rose-50"
+            >
+              {isStoppingSync ? 'Stopping...' : 'Stop Sync'}
+            </Button>
+          )}
+          {syncStatus && syncStatus.status === 'in_progress' && (
+            <div className="w-full rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800">
+              Syncing emails: {syncStatus.processed_count}/{syncStatus.total_emails} processed.
+            </div>
+          )}
+          {!syncInProgress && extractionInProgress && queueStatus && (
+            <div className="w-full rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800 flex items-center justify-between">
+              <span>
+                Extracting jobs... ({queueStatus.counts.completed}/{queueStatus.counts.waiting + queueStatus.counts.active + queueStatus.counts.completed} today)
+              </span>
+              <span className="text-teal-600 font-medium">
+                ~{Math.ceil((queueStatus.counts.waiting + queueStatus.counts.active) / 3)} min remaining
+              </span>
+            </div>
+          )}
+          {queueStatus && queueStatus.counts.failed > 0 && (
+            <div className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {queueStatus.counts.failed} extraction{queueStatus.counts.failed > 1 ? 's' : ''} failed — likely AI rate limit. Jobs will retry automatically.
+            </div>
+          )}
+          {syncStatus && syncStatus.status === 'failed' && (
+            <div className="w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              Last sync failed{syncStatus.error_message ? `: ${syncStatus.error_message}` : '.'}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -282,7 +480,7 @@ export default function DashboardPage() {
       <Card className="animate-slide-up delay-300">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <h3 className="text-base font-bold text-slate-900">Active Applications</h3>
-          <Link href="/jobs">
+          <Link href="/applications">
             <Button size="sm" variant="ghost" className="text-teal-600 text-xs">
               View All <MdArrowForward />
             </Button>
@@ -304,7 +502,7 @@ export default function DashboardPage() {
               {recentJobs.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-sm text-slate-400">
-                    No applications yet. <Link href="/jobs" className="text-teal-600 font-medium">Add your first job →</Link>
+                    No applications yet. <Link href="/applications" className="text-teal-600 font-medium">Add your first job →</Link>
                   </td>
                 </tr>
               )}
@@ -321,7 +519,7 @@ export default function DashboardPage() {
                     <td className="px-6 py-4 text-slate-400 text-xs capitalize">{job.source || 'Manual'}</td>
                     <td className="px-6 py-4 text-slate-400 text-xs">{formatActivityDate(job.updated_at)}</td>
                     <td className="px-6 py-4 text-right">
-                      <Link href="/jobs"><Button variant="ghost" size="sm" className="text-teal-600 text-xs">View →</Button></Link>
+                      <Link href="/applications"><Button variant="ghost" size="sm" className="text-teal-600 text-xs">View →</Button></Link>
                     </td>
                   </tr>
                 )

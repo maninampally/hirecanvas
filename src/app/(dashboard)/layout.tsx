@@ -27,9 +27,10 @@ export default function DashboardRootLayout({
 }) {
   const router = useRouter()
   const { setUser, setLoading, user } = useAuthStore()
-  const supabase = createClient()
 
   useEffect(() => {
+    const supabase = createClient()
+
     const loadUser = async () => {
       let authUser: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] | null = null
       try {
@@ -95,7 +96,7 @@ export default function DashboardRootLayout({
     }
 
     loadUser()
-  }, [supabase, router, setUser, setLoading])
+  }, [router, setUser, setLoading])
 
   if (!user) {
     return (

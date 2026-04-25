@@ -16,6 +16,7 @@ interface JobsTableProps {
   initialOpenJobId?: string | null
   /** Opens the real “Add job” form on the page (empty-state button). */
   onRequestAddJob?: () => void
+  isExtracting?: boolean
   filters?: {
     status?: string
     statuses?: string[]
@@ -27,7 +28,7 @@ interface JobsTableProps {
   }
 }
 
-export function JobsTable({ initialOpenJobId, onRequestAddJob, filters }: JobsTableProps) {
+export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, filters }: JobsTableProps) {
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(initialOpenJobId || null)
@@ -242,6 +243,27 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, filters }: JobsTa
   )
 
   if (jobs.length === 0) {
+    if (isExtracting) {
+      return (
+        <>
+          <Card>
+            <div className="p-8 text-center space-y-4">
+              <div className="w-12 h-12 mx-auto rounded-xl bg-teal-100 flex items-center justify-center text-teal-600 animate-pulse">
+                <MdUploadFile className="text-2xl" />
+              </div>
+              <p className="text-slate-600 font-medium animate-pulse">Processing new emails...</p>
+              <div className="max-w-md mx-auto space-y-2 mt-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-14 bg-slate-100 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            </div>
+          </Card>
+          {drawer}
+        </>
+      )
+    }
+
     return (
       <>
         <Card>
@@ -262,10 +284,10 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, filters }: JobsTa
                       onRequestAddJob()
                       return
                     }
-                    toast.info('Use “+ Add Job” at the top of this page to create an application.')
+                    toast.info('Use “+ Add Application” at the top of this page to create an application.')
                   }}
                 >
-                  Add job
+                  Add application
                 </Button>
               </>
             )}

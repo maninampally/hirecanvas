@@ -16,6 +16,7 @@ export default function BillingPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false)
   const [isPortalLoading, setIsPortalLoading] = useState(false)
+  const [interval, setInterval] = useState<'month' | 'year'>('month')
   const [data, setData] = useState<BillingStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [promotionCode, setPromotionCode] = useState('')
@@ -76,6 +77,7 @@ export default function BillingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tier,
+          interval,
           ...(trimmedPromo ? { promotionCode: trimmedPromo } : {}),
         }),
       })
@@ -148,6 +150,23 @@ export default function BillingPage() {
 
           {currentTier === 'free' ? (
             <div className="space-y-4">
+              <div className="inline-flex rounded-lg border border-slate-200 p-1">
+                <button
+                  type="button"
+                  className={`rounded-md px-3 py-1.5 text-sm ${interval === 'month' ? 'bg-teal-500 text-white' : 'text-slate-600'}`}
+                  onClick={() => setInterval('month')}
+                >
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-md px-3 py-1.5 text-sm ${interval === 'year' ? 'bg-teal-500 text-white' : 'text-slate-600'}`}
+                  onClick={() => setInterval('year')}
+                >
+                  Yearly (save ~20%)
+                </button>
+              </div>
+
               <div className="space-y-2">
                 <label htmlFor="billing-promo-code" className="text-sm font-medium text-slate-700">
                   Promotion code (optional)
@@ -167,10 +186,10 @@ export default function BillingPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button disabled={isCheckoutLoading || isLoading} onClick={() => void handleUpgrade('pro')}>
-                  {isCheckoutLoading ? 'Redirecting...' : 'Upgrade to Pro'}
+                  {isCheckoutLoading ? 'Redirecting...' : `Upgrade to Pro (${interval})`}
                 </Button>
                 <Button variant="outline" disabled={isCheckoutLoading || isLoading} onClick={() => void handleUpgrade('elite')}>
-                  {isCheckoutLoading ? 'Redirecting...' : 'Upgrade to Elite'}
+                  {isCheckoutLoading ? 'Redirecting...' : `Upgrade to Elite (${interval})`}
                 </Button>
               </div>
             </div>

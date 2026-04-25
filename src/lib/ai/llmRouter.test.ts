@@ -88,7 +88,7 @@ test('llm router fails over from gemini to claude', async () => {
     })
 
     assert.equal(result.provider, 'claude')
-    assert.equal(result.fallbackCount, 1)
+    assert.equal(result.fallbackCount, 2) // gemini + openai (no key = immediate throw) both fail before claude
     assert.equal(geminiCalled >= 1, true)
     assert.equal(claudeCalled >= 1, true)
   } finally {

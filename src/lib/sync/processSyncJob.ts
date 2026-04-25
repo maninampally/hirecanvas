@@ -112,6 +112,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
     let processedCount = 0
     let newJobsFound = 0
     let totalEmails = 0
+    let isStopped = false
 
     for (const tokenData of allTokens) {
       const { accessToken, idTokenEncrypted, lastHistoryId } = tokenData
@@ -194,6 +195,18 @@ export async function processSyncJob(payload: SyncJobPayload) {
       }
 
       for (let i = 0; i < pendingRefs.length; i += SYNC_MESSAGE_FETCH_CHUNK) {
+        if (statusRow) {
+          const { data: currentStatus } = await supabase
+            .from('sync_status')
+            .select('status')
+            .eq('id', statusRow.id)
+            .single()
+          if (currentStatus?.status === 'stopped') {
+            isStopped = true
+            break
+          }
+        }
+
         const chunk = pendingRefs.slice(i, i + SYNC_MESSAGE_FETCH_CHUNK)
 
         const results = await Promise.all(
@@ -311,6 +324,8 @@ export async function processSyncJob(payload: SyncJobPayload) {
         }
       }
 
+      if (isStopped) break
+
       // Update Gmail history cursor for incremental syncs.
       try {
         const profile = await getGmailProfile(accessToken)
@@ -327,7 +342,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
       }
     }
 
-    if (statusRow) {
+    if (statusRow && !isStopped) {
       await updateSyncStatus(statusRow.id, {
         status: 'completed',
         processed_count: processedCount,
@@ -345,7 +360,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
       .eq('review_status', 'auto_accepted')
       .gte('updated_at', syncStartedAt)
 
-    if (statusRow && actualJobsCreated !== null) {
+    if (statusRow && actualJobsCreated !== null && !isStopped) {
       await updateSyncStatus(statusRow.id, {
         new_jobs_found: actualJobsCreated,
       })

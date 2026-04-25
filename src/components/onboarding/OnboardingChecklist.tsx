@@ -30,7 +30,7 @@ export function OnboardingChecklist({
       id: 'job',
       label: 'Add your first job',
       done: hasCreatedJob,
-      href: '/jobs',
+      href: "/applications",
       cta: 'Go to Jobs',
     },
     {
