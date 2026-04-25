@@ -16,7 +16,10 @@ export async function runOpenAI(request: ProviderRequest): Promise<ProviderRespo
   // Support key rotation: try each key on quota errors
   const keys = [
     process.env.OPENAI_API_KEY,
+    process.env.OPENAI_API_KEY_2,
+    process.env.OPENAI_API_KEY_3,
     process.env.OPENAI_API_KEY_4,
+    process.env.OPENAI_API_KEY_5,
   ].filter(Boolean) as string[]
   if (keys.length === 0) {
     throw new ProviderError('openai', 'OPENAI_API_KEY is not configured', {
