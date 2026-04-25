@@ -26,12 +26,23 @@ export function StatusDropdown({
   onChange: (status: string) => void
   disabled?: boolean
 }) {
+  const dropdownColors: Record<string, string> = {
+    Wishlist: 'bg-slate-100 text-slate-700 border-slate-200',
+    Applied: 'bg-blue-100 text-blue-700 border-blue-200',
+    Screening: 'bg-amber-100 text-amber-700 border-amber-200',
+    Interview: 'bg-violet-100 text-violet-700 border-violet-200',
+    Offer: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    Rejected: 'bg-rose-100 text-rose-700 border-rose-200',
+  }
+
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
-      className="px-3 py-2 border border-slate-200 rounded-lg bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+      className={`px-3 py-2 border rounded-lg font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 ${
+        dropdownColors[value] || 'bg-white text-slate-900 border-slate-200'
+      }`}
     >
       <option value="Wishlist">Wishlist</option>
       <option value="Applied">Applied</option>
