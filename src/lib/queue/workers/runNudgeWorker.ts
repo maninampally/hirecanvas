@@ -1,15 +1,20 @@
 import { getNudgeQueue } from '@/lib/queue/nudgeQueue'
 import { createNudgeWorker } from '@/lib/queue/workers/nudgeWorker'
 import { processNudgeJob } from '@/lib/nudges/processNudgeJob'
+import { logError, logInfo } from '@/lib/observability/logger'
+import { captureSentryException, initSentry } from '@/lib/observability/sentry'
+
+initSentry('worker-nudge')
 
 const worker = createNudgeWorker(processNudgeJob)
 
 worker.on('completed', (job) => {
-  console.log(`[nudge-worker] completed job ${job.id}`)
+  logInfo('nudge_worker_completed', { jobId: job.id })
 })
 
 worker.on('failed', (job, error) => {
-  console.error(`[nudge-worker] failed job ${job?.id}: ${error.message}`)
+  logError('nudge_worker_failed', error, { jobId: job?.id })
+  captureSentryException(error, { jobId: job?.id })
 })
 
 async function registerSchedule() {
@@ -26,6 +31,9 @@ async function registerSchedule() {
   )
 }
 
-void registerSchedule()
+void registerSchedule().catch((error) => {
+  logError('nudge_schedule_registration_failed', error)
+  captureSentryException(error)
+})
 
-console.log('[nudge-worker] running')
+logInfo('nudge_worker_running')

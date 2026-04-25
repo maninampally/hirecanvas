@@ -43,3 +43,12 @@ export function decryptSecret(cipherText: string) {
 
   return decrypted.toString('utf8')
 }
+
+export function decryptOrReturnPlainText(value: string | null | undefined) {
+  if (!value) return null
+  try {
+    return decryptSecret(value)
+  } catch {
+    return value
+  }
+}
