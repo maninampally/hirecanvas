@@ -25,11 +25,11 @@ export function createExtractionWorker(
     },
     {
       connection: queueConnection,
-      concurrency: 1,
-      // 3 jobs/min × 3 API calls each = 9 calls/min — safely under each key's 20/min limit.
-      // BullMQ releases all 3 at the start of each minute, so the burst stays small.
+      concurrency: 3,
+      // 9 jobs/min with 3 concurrent workers × 3 API calls each = 9 calls/min per worker.
+      // With 5 rotated keys, each key sees ~2 calls/min — well under per-key rate limits.
       limiter: {
-        max: 3,
+        max: 9,
         duration: 60_000,
       },
     }

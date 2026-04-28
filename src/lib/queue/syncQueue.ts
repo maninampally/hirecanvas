@@ -10,6 +10,12 @@ export type SyncJobPayload = {
   fromDate?: string
   toDate?: string
   timezoneOffsetMinutes?: number
+  /**
+   * Per-job extraction mode override. The trigger route auto-selects
+   * `high_precision` for backfills longer than 30 days; otherwise the
+   * sync inherits the env-driven default in `getExtractionConfig()`.
+   */
+  extractionMode?: 'balanced' | 'high_recall' | 'high_precision'
 }
 
 let syncQueue: Queue<SyncJobPayload> | null = null

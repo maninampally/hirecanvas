@@ -17,6 +17,7 @@ type GmailHistoryResponse = {
 type GmailMessageResponse = {
   id: string
   threadId: string
+  labelIds?: string[]
   snippet?: string
   payload?: {
     mimeType?: string
