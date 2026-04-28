@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { releaseSyncLock } from '@/lib/security/syncLock'
+import { getExtractionQueue } from '@/lib/queue/extractionQueue'
 
 export async function POST(req: Request) {
   const supabase = await createClient()
@@ -29,12 +30,21 @@ export async function POST(req: Request) {
       .update({
         status: 'stopped',
         error_message: 'Manually stopped',
+        completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
       .eq('id', latest.id)
   }
 
   await releaseSyncLock(user.id)
+
+  // Drain pending extraction jobs so AI processing also stops.
+  try {
+    const extractionQueue = getExtractionQueue()
+    await extractionQueue.drain()
+  } catch {
+    // Queue may not be available (no Redis); ignore.
+  }
 
   return NextResponse.json({ success: true, message: 'Sync stopped' }, { status: 200 })
 }
