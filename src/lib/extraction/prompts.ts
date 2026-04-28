@@ -1,6 +1,7 @@
 // Unified prompt definitions for the 3-stage AI pipeline.
-// Stage 1 (classifier) and Stage 2 (extractor) should run on Gemini Flash.
-// Stage 3 (verifier) MUST run on a different model family (Claude) to act as a cross-check.
+// Stage 1 (classifier) and Stage 2 (extractor) prefer OpenAI GPT-4o-mini.
+// Stage 3 (verifier) prefers a different model family (Claude) for cross-checking,
+// falling back to OpenAI if Claude is unavailable.
 
 export type ClassifierEmailType =
   | 'application_confirmation'

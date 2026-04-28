@@ -69,7 +69,9 @@ function estimateCostCents(provider: string, inputTokens: number, outputTokens: 
   if (!(provider in rates)) return 0
   const rate = rates[provider as keyof typeof rates]
   const raw = (inputTokens / 1000) * rate.input + (outputTokens / 1000) * rate.output
-  return Math.max(0, Math.round(raw))
+  // Use Math.ceil so sub-cent costs (e.g. $0.0003 from GPT-4o-mini) register as 1 cent
+  // instead of rounding to 0 — which previously disabled the daily budget guard entirely.
+  return raw > 0 ? Math.max(1, Math.ceil(raw)) : 0
 }
 
 type PipelineTrace = {
@@ -86,7 +88,7 @@ type PipelineTrace = {
 }
 
 // ---------------------------------------------------------------------------
-// STAGE 1 — Relevance Classifier (Gemini Flash)
+// STAGE 1 — Relevance Classifier (OpenAI GPT-4o-mini preferred)
 // ---------------------------------------------------------------------------
 
 async function runStage1Classifier(email: ExtractionEmailPayload, trace: PipelineTrace) {
@@ -102,7 +104,7 @@ async function runStage1Classifier(email: ExtractionEmailPayload, trace: Pipelin
       task: 'job_extraction',
       systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
       prompt,
-      preferredProvider: 'gemini',
+      preferredProvider: 'openai',
       strictPreferredProvider: false,
       temperature: 0,
       maxTokens: 1024, // gemini-2.5-flash uses thinking tokens that eat into output budget
@@ -150,7 +152,7 @@ async function runStage1Classifier(email: ExtractionEmailPayload, trace: Pipelin
 }
 
 // ---------------------------------------------------------------------------
-// STAGE 2 — Extractor (Gemini Flash)
+// STAGE 2 — Extractor (OpenAI GPT-4o-mini preferred)
 // ---------------------------------------------------------------------------
 
 async function runStage2Extractor(
@@ -171,7 +173,7 @@ async function runStage2Extractor(
       task: 'job_extraction',
       systemPrompt: EXTRACTOR_SYSTEM_PROMPT,
       prompt,
-      preferredProvider: 'gemini',
+      preferredProvider: 'openai',
       strictPreferredProvider: false,
       temperature: 0,
       maxTokens: 1024,
@@ -224,9 +226,18 @@ async function runStage3Verifier(params: {
   // But if that provider is unavailable, fall back to any working provider.
   // Priority: OpenAI > Claude > Gemini (if Stage 2 was Gemini)
   const preferredProvider: 'claude' | 'gemini' | 'openai' =
-    stage2ProviderFamily === 'gemini' ? 'openai'
-    : stage2ProviderFamily === 'openai' ? 'gemini'
-    : 'gemini'
+    stage2ProviderFamily === 'openai' ? 'claude'
+    : stage2ProviderFamily === 'claude' ? 'openai'
+    : 'openai'
+
+  // BUG-002 mitigation: when Stage 2 ran on OpenAI and Anthropic credits
+  // are exhausted, the router falls back to OpenAI for Stage 3 — same
+  // family verifying its own output. Pin the verifier to a stronger model
+  // (`gpt-4o` vs the extractor's `gpt-4o-mini`) so the cross-check still
+  // catches a different distribution of mistakes.
+  const verifierOpenAIModel = process.env.OPENAI_VERIFIER_MODEL || 'gpt-4o'
+  const modelOverridePerProvider: Partial<Record<'gemini' | 'claude' | 'openai', string>> =
+    stage2ProviderFamily === 'openai' ? { openai: verifierOpenAIModel } : {}
 
   const prompt = buildVerifierPrompt({
     email: { from: email.from, subject: email.subject, bodyText: sanitizedBody },
@@ -249,6 +260,7 @@ async function runStage3Verifier(params: {
       strictPreferredProvider: false,
       temperature: 0,
       maxTokens: 1024,
+      modelOverridePerProvider,
     })
     trace.passCount += 1
     trace.inputTokens += result.usage?.inputTokens || 0
@@ -691,6 +703,7 @@ export async function processExtractionJob(payload: ExtractionJobPayload) {
         userId: payload.userId,
         email: payload.email,
         userTier,
+        mode: payload.extractionMode,
       })
     }
 
@@ -729,6 +742,7 @@ export async function processExtractionJob(payload: ExtractionJobPayload) {
         userId: payload.userId,
         email,
         userTier,
+        mode: payload.extractionMode,
       })
     }
 
