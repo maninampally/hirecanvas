@@ -22,6 +22,8 @@ export type ExtractionJobPayload = {
   emailId?: string
   jobId?: string
   providerHint?: 'gemini' | 'claude' | 'openai'
+  /** Optional per-job override of the extraction config mode. */
+  extractionMode?: 'balanced' | 'high_recall' | 'high_precision'
 }
 
 let extractionQueue: Queue<ExtractionJobPayload> | null = null

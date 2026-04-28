@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 
 export default function ForgotPasswordPage() {
-  const supabase = createClient()
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -21,6 +20,7 @@ export default function ForgotPasswordPage() {
     setSuccess(null)
 
     try {
+      const supabase = createClient()
       const redirectTo = `${window.location.origin}/reset-password`
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
       if (resetError) throw resetError

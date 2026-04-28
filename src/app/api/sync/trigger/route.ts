@@ -8,10 +8,35 @@ import { acquireSyncLock, releaseSyncLock } from '@/lib/security/syncLock'
 
 type AppTier = 'free' | 'pro' | 'elite' | 'admin'
 
+type ExtractionMode = 'balanced' | 'high_recall' | 'high_precision'
+
 type SyncTriggerRequestBody = {
   fromDate?: string
   toDate?: string
   timezoneOffsetMinutes?: number
+}
+
+// Backfills wider than this auto-switch to high_precision so the LLM
+// pipeline tightens its gates and ignores noisy email types. Today-only
+// and short-range syncs keep the env-driven default.
+const LONG_RANGE_DAYS = 30
+
+function daysBetween(fromDate?: string, toDate?: string): number | null {
+  if (!fromDate) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) return null
+  const fromMs = Date.parse(`${fromDate}T00:00:00Z`)
+  if (!Number.isFinite(fromMs)) return null
+  const toMs = toDate && /^\d{4}-\d{2}-\d{2}$/.test(toDate)
+    ? Date.parse(`${toDate}T23:59:59Z`)
+    : Date.now()
+  if (!Number.isFinite(toMs)) return null
+  return Math.max(0, Math.round((toMs - fromMs) / 86_400_000))
+}
+
+function pickExtractionMode(fromDate?: string, toDate?: string): ExtractionMode | undefined {
+  const span = daysBetween(fromDate, toDate)
+  if (span === null) return undefined
+  return span > LONG_RANGE_DAYS ? 'high_precision' : undefined
 }
 
 function normalizeDateInput(value: unknown) {
@@ -217,13 +242,54 @@ export async function POST(req: Request) {
       throw syncStatusError
     }
 
+    // --- Smart auto-date: when no explicit date filter, default to today ---
+    let effectiveFromDate = fromDate
+    const effectiveToDate = toDate
+    const hasUserDateFilter = Boolean(fromDate || toDate)
+
+    if (!hasUserDateFilter) {
+      // Compute the user's local "start of today" (midnight) in YYYY-MM-DD
+      const now = new Date()
+      const offsetMs = (typeof timezoneOffsetMinutes === 'number' ? timezoneOffsetMinutes : 0) * 60 * 1000
+      const localNow = new Date(now.getTime() - offsetMs)
+      const todayStr = localNow.toISOString().slice(0, 10) // YYYY-MM-DD in user's local tz
+
+      // Check if a sync already completed today
+      const todayStartUtc = new Date(
+        Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), 0, 0, 0) + offsetMs
+      ).toISOString()
+
+      const { data: lastCompleted } = await supabase
+        .from('sync_status')
+        .select('completed_at')
+        .eq('user_id', user.id)
+        .in('status', ['completed', 'stopped'])
+        .gte('completed_at', todayStartUtc)
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle<{ completed_at: string | null }>()
+
+      if (lastCompleted?.completed_at) {
+        // Sync already happened today → use last sync's completion time as start
+        const lastSyncDate = new Date(lastCompleted.completed_at)
+        const lastSyncLocal = new Date(lastSyncDate.getTime() - offsetMs)
+        effectiveFromDate = lastSyncLocal.toISOString().slice(0, 10) // YYYY-MM-DD
+      } else {
+        // No sync today → use start of today
+        effectiveFromDate = todayStr
+      }
+    }
+
+    const extractionMode = pickExtractionMode(effectiveFromDate, effectiveToDate)
+
     const payload = {
       userId: user.id,
       trigger: 'manual' as const,
-      force: Boolean(fromDate || toDate),
-      ...(fromDate ? { fromDate } : {}),
-      ...(toDate ? { toDate } : {}),
+      force: Boolean(effectiveFromDate || effectiveToDate),
+      ...(effectiveFromDate ? { fromDate: effectiveFromDate } : {}),
+      ...(effectiveToDate ? { toDate: effectiveToDate } : {}),
       ...(typeof timezoneOffsetMinutes === 'number' ? { timezoneOffsetMinutes } : {}),
+      ...(extractionMode ? { extractionMode } : {}),
     }
 
     let jobId: string | number | null = null
@@ -251,8 +317,10 @@ export async function POST(req: Request) {
         tier,
         remaining: rateLimitResult.remaining,
         processedInline,
-        ...(fromDate || toDate ? { range: { fromDate: fromDate || null, toDate: toDate || null } } : {}),
+        autoDateComputed: !hasUserDateFilter,
+        range: { fromDate: effectiveFromDate || null, toDate: effectiveToDate || null },
         timezoneOffsetMinutes: typeof timezoneOffsetMinutes === 'number' ? timezoneOffsetMinutes : null,
+        extractionMode: extractionMode || null,
       },
       ipAddress: requestMeta.ipAddress,
       userAgent: requestMeta.userAgent,
@@ -263,9 +331,11 @@ export async function POST(req: Request) {
         message: processedInline ? 'Sync completed inline (dev fallback)' : 'Sync started',
         jobId,
         processedInline,
-        fromDate: fromDate || null,
-        toDate: toDate || null,
+        fromDate: effectiveFromDate || null,
+        toDate: effectiveToDate || null,
+        autoDateComputed: !hasUserDateFilter,
         timezoneOffsetMinutes: typeof timezoneOffsetMinutes === 'number' ? timezoneOffsetMinutes : null,
+        extractionMode: extractionMode || null,
         remaining: rateLimitResult.remaining,
         resetInSeconds: rateLimitResult.resetInSeconds,
       },

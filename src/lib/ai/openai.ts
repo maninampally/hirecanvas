@@ -30,7 +30,7 @@ export async function runOpenAI(request: ProviderRequest): Promise<ProviderRespo
   let lastError: ProviderError | null = null
 
   for (const apiKey of keys) {
-    const model = process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
+    const model = request.modelOverride || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {

@@ -341,6 +341,7 @@ export async function flagForReview(params: {
 export async function markAutoAccepted(params: {
   userId: string
   gmailMessageId: string
+  gmailThreadId?: string | null
   fromAddress: string
   subject: string | null
   contentHash: string | null
@@ -353,6 +354,7 @@ export async function markAutoAccepted(params: {
     {
       user_id: params.userId,
       gmail_message_id: params.gmailMessageId,
+      ...(params.gmailThreadId ? { gmail_thread_id: params.gmailThreadId } : {}),
       from_address: params.fromAddress || 'unknown',
       subject: params.subject,
       content_hash: params.contentHash,
@@ -368,6 +370,7 @@ export async function markAutoAccepted(params: {
 export async function markAutoRejected(params: {
   userId: string
   gmailMessageId: string
+  gmailThreadId?: string | null
   fromAddress: string
   subject: string | null
   contentHash: string | null
@@ -379,6 +382,7 @@ export async function markAutoRejected(params: {
     {
       user_id: params.userId,
       gmail_message_id: params.gmailMessageId,
+      ...(params.gmailThreadId ? { gmail_thread_id: params.gmailThreadId } : {}),
       from_address: params.fromAddress || 'unknown',
       subject: params.subject,
       content_hash: params.contentHash,
