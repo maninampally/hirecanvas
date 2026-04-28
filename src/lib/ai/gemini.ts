@@ -5,6 +5,13 @@ export type ProviderRequest = {
   systemPrompt?: string
   temperature?: number
   maxTokens?: number
+  /**
+   * Per-call model override. Lets the caller force a specific model
+   * (e.g. `gpt-4o` for the verifier stage when the extractor ran on
+   * `gpt-4o-mini`) so cross-model verification still happens even when
+   * the preferred provider family has no credits.
+   */
+  modelOverride?: string
 }
 
 export type ProviderResponse = {
@@ -65,7 +72,7 @@ export async function runGemini(request: ProviderRequest): Promise<ProviderRespo
   let lastError: ProviderError | null = null
 
   for (const apiKey of keys) {
-    const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
+    const model = request.modelOverride || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
 
     const response = await fetch(url, {

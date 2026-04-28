@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -9,7 +9,11 @@ import { Button } from '@/components/ui/button'
 const RESEND_COOLDOWN_SECONDS = 30
 
 function VerifyEmailContent() {
-  const supabase = useMemo(() => createClient(), [])
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  function getSupabase() {
+    if (!supabaseRef.current) supabaseRef.current = createClient()
+    return supabaseRef.current
+  }
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectedFrom = searchParams.get('redirectedFrom') || '/dashboard'
@@ -26,7 +30,7 @@ function VerifyEmailContent() {
     void (async () => {
       const {
         data: { user },
-      } = await supabase.auth.getUser()
+      } = await getSupabase().auth.getUser()
 
       if (!mounted) return
 
@@ -44,7 +48,7 @@ function VerifyEmailContent() {
     return () => {
       mounted = false
     }
-  }, [redirectedFrom, router, supabase])
+  }, [redirectedFrom, router])
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -60,7 +64,7 @@ function VerifyEmailContent() {
     setError(null)
     setMessage(null)
     try {
-      const { error: resendError } = await supabase.auth.resend({
+      const { error: resendError } = await getSupabase().auth.resend({
         type: 'signup',
         email,
       })
@@ -80,7 +84,7 @@ function VerifyEmailContent() {
     try {
       const {
         data: { user },
-      } = await supabase.auth.getUser()
+      } = await getSupabase().auth.getUser()
       if (!user) {
         router.replace('/login')
         return

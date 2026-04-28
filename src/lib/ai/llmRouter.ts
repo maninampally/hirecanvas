@@ -19,6 +19,18 @@ export type LLMRouterInput = {
   strictPreferredProvider?: boolean
   temperature?: number
   maxTokens?: number
+  /**
+   * Force a specific model on whichever provider runs. Verifier stage
+   * uses this so it can ask for `gpt-4o` instead of the extractor's
+   * `gpt-4o-mini` when both stages end up on OpenAI.
+   */
+  modelOverride?: string
+  /**
+   * Per-provider model overrides — picked over `modelOverride` for the
+   * matching provider. Lets the verifier set `gpt-4o` for openai while
+   * leaving claude/gemini on their defaults.
+   */
+  modelOverridePerProvider?: Partial<Record<AIProvider, string>>
 }
 
 export type LLMRouterResult = {
@@ -170,11 +182,13 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
     }
 
     try {
+      const modelOverride = input.modelOverridePerProvider?.[provider] ?? input.modelOverride
       const response = await runProvider(provider, {
         prompt: input.prompt,
         systemPrompt: input.systemPrompt,
         temperature: input.temperature,
         maxTokens: input.maxTokens,
+        modelOverride,
       })
 
       await writeProviderHealth(provider, {

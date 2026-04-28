@@ -20,7 +20,7 @@ export async function runClaude(request: ProviderRequest): Promise<ProviderRespo
     })
   }
 
-  const model = process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL
+  const model = request.modelOverride || process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {

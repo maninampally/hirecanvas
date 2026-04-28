@@ -70,7 +70,6 @@ export const EXTRACTION_CONFIGS: Record<ExtractionMode, ExtractionConfig> = {
       'offer',
       'rejection',
       'recruiter_outreach',
-      'unknown',
     ],
   },
 }

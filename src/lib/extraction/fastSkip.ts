@@ -30,6 +30,7 @@ export const FAST_SKIP_PATTERNS = {
 
   // Skip if from these known noise senders.
   senderReject: [
+    // Job-board digests / promotions (NOT ATS emails — those go through)
     /noreply@linkedin\.com/i,
     /jobs-listings@linkedin\.com/i,
     /editors-noreply@linkedin\.com/i,
@@ -46,14 +47,40 @@ export const FAST_SKIP_PATTERNS = {
     /billing@mail\./i,
     /invoice\+statements@/i,
     /googleplay-noreply@/i,
+    // Banking / financial alerts
     /ealerts\.bankofamerica\.com/i,
     /services\.discover\.com/i,
+    /@(?:chase|wellsfargo|citi|capitalone|amex|americanexpress)\.com/i,
+    /@(?:paypal|venmo|zelle|cash\.app|stripe|squareup)\.com/i,
+    /@email\.discover\.com/i,
+    /@bankofamerica\.com/i,
+    // E-commerce / shipping / food
+    /no.?reply@.*\.(shopify|stripe|paypal|amazon|apple)/i,
+    /(?:shipment|order|delivery)-?(?:update|tracking|confirmation)@/i,
+    /@(?:amazon\.(?:com|co\.uk|in)|amzn\.com|amazonses\.com)/i,
+    /@(?:doordash|ubereats|grubhub|swiggy|zomato|instacart|seamless)\.com/i,
+    /@(?:uber|lyft|ola|airbnb|booking|expedia|kayak|priceline)\.com/i,
+    /@(?:walmart|target|bestbuy|ebay|etsy|wayfair|costco)\.com/i,
+    // Social media notifications
+    /@(?:instagram|facebookmail|facebook)\.com/i,
+    /no-?reply@(?:x|twitter)\.com/i,
+    /@(?:tiktok|snapchat|pinterest|reddit|tumblr|threads)\.com/i,
+    /@medium\.com/i,
+    // Dev tool noise (Hire emails come from greenhouse/lever, not these)
+    /^notifications@github\.com/i,
+    /^noreply@github\.com/i,
+    /@(?:gitlab|bitbucket)\.com/i,
+    /@(?:notion|slack|asana|trello|jira|atlassian|monday|clickup|linear|figma)\.(?:com|so|app)/i,
+    /@(?:zoom|webex|gotomeeting|calendly)\.us/i,
+    /@(?:dropbox|box|onedrive|drive\.google)\.com/i,
+    // Misc bulk noise
     /noreply@supabase\.com/i,
     /noreply@mail\.app\.supabase\.io/i,
     /no-reply@mail\.lovable-app\.email/i,
     /donotreply@godaddy\.com/i,
     /uscis\.dhs\.gov/i,
-    /no.?reply@.*\.(shopify|stripe|paypal|amazon|apple)/i,
+    /@(?:netflix|spotify|hulu|disney|primevideo|youtube)\.com/i,
+    /@(?:duolingo|coursera|udemy|edx|khanacademy)\.(?:com|org)/i,
   ],
 
   // NEVER skip if subject contains these — always pass to classifier.
@@ -80,6 +107,8 @@ export const FAST_SKIP_PATTERNS = {
   ],
 }
 
+import { isAtsSender } from '@/lib/extraction/atsAllowlist'
+
 export type FastSkipInput = {
   subject: string
   from: string
@@ -95,7 +124,15 @@ export function shouldFastSkip(email: FastSkipInput): FastSkipResult {
   const subject = email.subject || ''
   const from = email.from || ''
 
-  // Always-pass first — these NEVER get skipped even if sender looks noisy
+  // ATS senders override every reject rule. Greenhouse / Lever / Workday
+  // emails are real lifecycle signals even if their subject/sender pattern
+  // overlaps with a noise filter.
+  if (isAtsSender(from)) {
+    return { skip: false }
+  }
+
+  // Always-pass subject phrases — interview/offer/rejection language wins
+  // over a noisy sender domain.
   for (const pattern of FAST_SKIP_PATTERNS.subjectAlwaysPass) {
     if (pattern.test(subject)) {
       return { skip: false }
