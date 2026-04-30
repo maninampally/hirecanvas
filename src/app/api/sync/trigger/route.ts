@@ -14,6 +14,7 @@ type SyncTriggerRequestBody = {
   fromDate?: string
   toDate?: string
   timezoneOffsetMinutes?: number
+  force?: boolean
 }
 
 // Backfills wider than this auto-switch to high_precision so the LLM
@@ -285,7 +286,7 @@ export async function POST(req: Request) {
     const payload = {
       userId: user.id,
       trigger: 'manual' as const,
-      force: Boolean(effectiveFromDate || effectiveToDate),
+      force: Boolean(requestBody.force),
       ...(effectiveFromDate ? { fromDate: effectiveFromDate } : {}),
       ...(effectiveToDate ? { toDate: effectiveToDate } : {}),
       ...(typeof timezoneOffsetMinutes === 'number' ? { timezoneOffsetMinutes } : {}),
