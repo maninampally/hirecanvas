@@ -16,6 +16,8 @@ import {
   setUserTimezone,
   updateAccountProfile,
   updateNotificationPreferences,
+  getAutoSyncSettings,
+  updateAutoSyncTime,
   type ConnectionStatus,
   type GmailConnectionCheckResult,
   type MFAStatus,
@@ -153,6 +155,11 @@ export default function SettingsPage() {
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
   const [onboardingBusy, setOnboardingBusy] = useState(false)
   const [referralStatus, setReferralStatus] = useState<ReferralStatus | null>(null)
+  
+  const [autoSyncTime, setAutoSyncTime] = useState<string | null>(null)
+  const [loadingAutoSync, setLoadingAutoSync] = useState(false)
+  const [savingAutoSync, setSavingAutoSync] = useState(false)
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
 
   function describeDevice(userAgent: string | null) {
     if (!userAgent) return 'Unknown device'
@@ -290,6 +297,36 @@ export default function SettingsPage() {
       clearTimeout(timer)
     }
   }, [])
+
+  useEffect(() => {
+    let mounted = true
+    const loadAutoSync = async () => {
+      setLoadingAutoSync(true)
+      try {
+        const settings = await getAutoSyncSettings()
+        if (mounted) {
+          setAutoSyncTime(settings.auto_sync_time)
+          setAutoSyncEnabled(!!settings.auto_sync_time)
+        }
+      } catch {
+        if (mounted) {
+          setAutoSyncTime(null)
+          setAutoSyncEnabled(false)
+        }
+      } finally {
+        if (mounted) setLoadingAutoSync(false)
+      }
+    }
+    const timer = setTimeout(() => {
+      if (user?.tier === 'elite') {
+        void loadAutoSync()
+      }
+    }, 0)
+    return () => {
+      mounted = false
+      clearTimeout(timer)
+    }
+  }, [user?.tier])
 
   useEffect(() => {
     let mounted = true
@@ -631,6 +668,43 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSaveAutoSyncTime() {
+    if (!autoSyncEnabled && !autoSyncTime) {
+      // Disable auto-sync
+      setSavingAutoSync(true)
+      try {
+        await updateAutoSyncTime(null)
+        setAutoSyncTime(null)
+        setAutoSyncEnabled(false)
+        toast.success('Auto-sync disabled')
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to save auto-sync time')
+      } finally {
+        setSavingAutoSync(false)
+      }
+      return
+    }
+
+    if (!autoSyncEnabled || !autoSyncTime) return
+
+    // Validate time format
+    const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/
+    if (!timeRegex.test(autoSyncTime)) {
+      toast.error('Invalid time format. Use HH:MM (24-hour).')
+      return
+    }
+
+    setSavingAutoSync(true)
+    try {
+      await updateAutoSyncTime(autoSyncTime)
+      toast.success(`Auto-sync scheduled for ${autoSyncTime} UTC daily`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save auto-sync time')
+    } finally {
+      setSavingAutoSync(false)
+    }
+  }
+
   const tabs = [
     { id: 'account', label: 'Account', icon: MdPerson },
     { id: 'security', label: 'Security', icon: MdSecurity },
@@ -748,6 +822,66 @@ export default function SettingsPage() {
                   <p className="mt-2 text-xs text-slate-600">
                     Invites: {referralStatus.totalInvites} • Qualified: {referralStatus.qualifiedInvites} • Rewarded: {referralStatus.rewardedInvites}
                   </p>
+                </div>
+              )}
+
+              {user?.tier === 'elite' && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">Auto-Sync Schedule</p>
+                    <p className="text-xs text-slate-500 mt-1">Set a time for automatic daily email syncs. Runs in UTC timezone.</p>
+                  </div>
+                  
+                  {loadingAutoSync ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-400 py-2">
+                      <span className="w-4 h-4 border-2 border-slate-200 border-t-teal-500 rounded-full animate-spin" />
+                      Loading settings...
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={autoSyncEnabled}
+                          onChange={(event) => setAutoSyncEnabled(event.target.checked)}
+                          disabled={savingAutoSync}
+                          id="auto-sync-enable"
+                          className="h-4.5 w-4.5 rounded-md border-slate-300 text-teal-500 transition-colors focus:ring-2 focus:ring-teal-500/40 focus:ring-offset-0 cursor-pointer accent-teal-500"
+                        />
+                        <label htmlFor="auto-sync-enable" className="text-sm text-slate-700 cursor-pointer">
+                          Enable daily auto-sync
+                        </label>
+                      </div>
+
+                      {autoSyncEnabled && (
+                        <div className="space-y-2">
+                          <label className="block text-sm font-medium text-slate-700">Sync Time (24-hour UTC)</label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              value={autoSyncTime || '09:00'}
+                              onChange={(event) => setAutoSyncTime(event.target.value)}
+                              disabled={savingAutoSync}
+                              className="w-32"
+                            />
+                            <span className="text-xs text-slate-500">UTC</span>
+                          </div>
+                          <p className="text-xs text-slate-400">
+                            Sync will run daily at {autoSyncTime || '09:00'} UTC
+                          </p>
+                        </div>
+                      )}
+
+                      <Button
+                        size="sm"
+                        onClick={() => void handleSaveAutoSyncTime()}
+                        disabled={savingAutoSync || loadingAutoSync}
+                        className="w-full"
+                      >
+                        {savingAutoSync ? 'Saving...' : 'Save Schedule'}
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
 

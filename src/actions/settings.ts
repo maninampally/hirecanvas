@@ -512,3 +512,40 @@ export async function setUserTimezone(timezone: string) {
 
   return { timezone: data?.timezone || normalized }
 }
+
+export async function getAutoSyncSettings() {
+  const { user } = await getAuthenticatedUser()
+
+  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings/auto-sync`, {
+    headers: {
+      cookie: (await headers()).get('cookie') || '',
+    },
+  })
+
+  if (!response.ok) {
+    const error = await response.json() as { error?: string }
+    throw new Error(error.error || 'Failed to fetch auto-sync settings')
+  }
+
+  return response.json() as Promise<{ auto_sync_time: string | null; tier: string }>
+}
+
+export async function updateAutoSyncTime(autoSyncTime: string | null) {
+  const { user } = await getAuthenticatedUser()
+
+  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings/auto-sync`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      cookie: (await headers()).get('cookie') || '',
+    },
+    body: JSON.stringify({ auto_sync_time: autoSyncTime }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json() as { error?: string }
+    throw new Error(error.error || 'Failed to update auto-sync time')
+  }
+
+  return response.json() as Promise<{ success: boolean; auto_sync_time: string | null }>
+}

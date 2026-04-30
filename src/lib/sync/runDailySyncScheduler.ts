@@ -6,6 +6,39 @@ import { createServiceClient } from '@/lib/supabase/service'
 type EligibleUserRow = {
   id: string
   tier: 'pro' | 'elite' | 'admin'
+  auto_sync_time: string | null
+}
+
+function getCurrentTimeInFormat(): string {
+  const now = new Date()
+  const hours = String(now.getUTCHours()).padStart(2, '0')
+  const minutes = String(now.getUTCMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function shouldSyncNow(autoSyncTime: string | null, tier: string): boolean {
+  // Pro and admin users always sync (no per-user scheduling)
+  if (tier !== 'elite') {
+    return true
+  }
+
+  // Elite users: only sync if they have a configured time
+  if (!autoSyncTime) {
+    return false
+  }
+
+  // Check if current UTC time matches the configured time
+  // Allow a 5-minute window to account for cron job timing variations
+  const currentTime = getCurrentTimeInFormat()
+  const [currentHour, currentMinute] = currentTime.split(':').map(Number)
+  const [syncHour, syncMinute] = autoSyncTime.split(':').map(Number)
+
+  const currentTotalMinutes = currentHour * 60 + currentMinute
+  const syncTotalMinutes = syncHour * 60 + syncMinute
+
+  // Allow ±5 minute window
+  const diff = Math.abs(currentTotalMinutes - syncTotalMinutes)
+  return diff <= 5
 }
 
 export async function runDailySyncScheduler() {
@@ -13,7 +46,7 @@ export async function runDailySyncScheduler() {
 
   const { data: eligibleUsers, error: userError } = await supabase
     .from('app_users')
-    .select('id,tier')
+    .select('id,tier,auto_sync_time')
     .in('tier', ['pro', 'elite', 'admin'])
     .eq('is_suspended', false)
 
@@ -24,6 +57,12 @@ export async function runDailySyncScheduler() {
   let skipped = 0
 
   for (const user of users) {
+    // Check if user should sync at this time
+    if (!shouldSyncNow(user.auto_sync_time, user.tier)) {
+      skipped += 1
+      continue
+    }
+
     const { data: tokenRow, error: tokenError } = await supabase
       .from('oauth_tokens')
       .select('id,is_revoked')
