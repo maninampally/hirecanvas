@@ -73,6 +73,19 @@ export const FAST_SKIP_PATTERNS = {
     /@(?:notion|slack|asana|trello|jira|atlassian|monday|clickup|linear|figma)\.(?:com|so|app)/i,
     /@(?:zoom|webex|gotomeeting|calendly)\.us/i,
     /@(?:dropbox|box|onedrive|drive\.google)\.com/i,
+    // More job-board digest senders (NOT ATS — actual application emails still pass)
+    /digest@handshake\.com/i,
+    /noreply@dice\.com/i,
+    /noreply@careerbuilder\.com/i,
+    /noreply@monster\.com/i,
+    /noreply@simplyhired\.com/i,
+    /alert@snagajob\.com/i,
+    // Financial / brokerage alerts
+    /@(?:robinhood|coinbase|etrade|schwab|fidelity|vanguard|tdameritrade)\.com/i,
+    // Health / insurance
+    /@(?:aetna|cigna|unitedhealthcare|humana|anthem)\.com/i,
+    // More SaaS dev-tool noise
+    /@(?:circleci|datadog|pagerduty|statuspage)\.(?:com|io)/i,
     // Misc bulk noise
     /noreply@supabase\.com/i,
     /noreply@mail\.app\.supabase\.io/i,
@@ -80,7 +93,8 @@ export const FAST_SKIP_PATTERNS = {
     /donotreply@godaddy\.com/i,
     /uscis\.dhs\.gov/i,
     /@(?:netflix|spotify|hulu|disney|primevideo|youtube)\.com/i,
-    /@(?:duolingo|coursera|udemy|edx|khanacademy)\.(?:com|org)/i,
+    /udemy/i,
+    /@(?:duolingo|coursera|edx|khanacademy)\.(?:com|org)/i,
   ],
 
   // NEVER skip if subject contains these — always pass to classifier.
@@ -104,6 +118,7 @@ export const FAST_SKIP_PATTERNS = {
     /\btake[- ]?home\b/i,
     /\bwe.d like to (meet|speak|chat|schedule)\b/i,
     /\bapplication (to|for) [A-Z]/,
+    /\byour application was sent to\b/i,
   ],
 }
 
