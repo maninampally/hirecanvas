@@ -227,13 +227,14 @@ export async function upsertJobFromExtraction(params: {
     updated_at: nowIso,
   }
 
-  if (extraction.location) insertPayload.location = extraction.location
-  if (extraction.recruiter_name) insertPayload.recruiter_name = extraction.recruiter_name
-  if (extraction.recruiter_email) insertPayload.recruiter_email = extraction.recruiter_email
-  if (extraction.interview_date) insertPayload.interview_date = extraction.interview_date
-  if (extraction.interview_type) insertPayload.interview_type = extraction.interview_type
-  if (extraction.salary_range) insertPayload.salary_range = extraction.salary_range
-  if (extraction.ats_platform) insertPayload.ats_platform = extraction.ats_platform
+  const notNullStr = (v: string | null | undefined) => v && v !== 'null' && v !== 'undefined' ? v : undefined
+  if (notNullStr(extraction.location)) insertPayload.location = extraction.location
+  if (notNullStr(extraction.recruiter_name)) insertPayload.recruiter_name = extraction.recruiter_name
+  if (notNullStr(extraction.recruiter_email)) insertPayload.recruiter_email = extraction.recruiter_email
+  if (notNullStr(extraction.interview_date)) insertPayload.interview_date = extraction.interview_date
+  if (notNullStr(extraction.interview_type)) insertPayload.interview_type = extraction.interview_type
+  if (notNullStr(extraction.salary_range)) insertPayload.salary_range = extraction.salary_range
+  if (notNullStr(extraction.ats_platform)) insertPayload.ats_platform = extraction.ats_platform
   if (extraction.ai_confidence_score !== null)
     insertPayload.ai_confidence_score = extraction.ai_confidence_score
 
