@@ -14,7 +14,7 @@ export function getRedisConnectionOptions() {
     username: parsed.username || undefined,
     password: parsed.password || undefined,
     tls: parsed.protocol === 'rediss:' ? {} : undefined,
-    retryStrategy: (times) => {
+    retryStrategy: (times: number) => {
       // Exponential backoff or simple fixed delay
       const delay = Math.min(times * 100, 2000)
       return delay
