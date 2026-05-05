@@ -86,6 +86,9 @@ export async function PATCH(request: NextRequest) {
     .single()
 
   if (error) {
+    if (error.code === 'PGRST116') {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

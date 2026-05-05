@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq'
-import { queueConnection } from '@/lib/queue/connection'
+import { getQueueConnection } from '@/lib/queue/connection'
 import { NUDGE_QUEUE_NAME, type NudgeJobPayload } from '@/lib/queue/nudgeQueue'
 
 export function createNudgeWorker(
@@ -11,7 +11,7 @@ export function createNudgeWorker(
       await processor(job.data)
     },
     {
-      connection: queueConnection,
+      connection: getQueueConnection(),
       concurrency: 2,
     }
   )

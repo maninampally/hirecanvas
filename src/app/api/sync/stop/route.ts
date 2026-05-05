@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { releaseSyncLock } from '@/lib/security/syncLock'
 import { getExtractionQueue } from '@/lib/queue/extractionQueue'
 
-export async function POST(req: Request) {
+export async function POST() {
   const supabase = await createClient()
 
   const {
@@ -14,7 +14,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Find latest active sync and mark it as stopped
   const { data: latest } = await supabase
     .from('sync_status')
     .select('id')
@@ -38,10 +37,18 @@ export async function POST(req: Request) {
 
   await releaseSyncLock(user.id)
 
-  // Drain pending extraction jobs so AI processing also stops.
+  // Remove only this user's pending extraction jobs, not everyone's.
   try {
     const extractionQueue = getExtractionQueue()
-    await extractionQueue.drain()
+    const pendingJobs = await extractionQueue.getJobs(['waiting', 'delayed'], 0, 500)
+    const userJobIds = pendingJobs
+      .filter(j => j.data?.userId === user.id)
+      .map(j => j.id)
+      .filter((id): id is string => id != null)
+
+    if (userJobIds.length > 0) {
+      await Promise.all(userJobIds.map(id => extractionQueue.remove(id).catch(() => {})))
+    }
   } catch {
     // Queue may not be available (no Redis); ignore.
   }

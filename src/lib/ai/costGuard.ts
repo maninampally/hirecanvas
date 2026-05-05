@@ -17,14 +17,14 @@ export class DailyAIBudgetExceededError extends Error {
 }
 
 function getDailyCapCents(tier: UserTier) {
-  // Caps based on realistic extraction costs:
-  // Each email costs ~$0.0003 (3 model calls × ~$0.0001 avg)
-  // Elite/Admin: ~$1.00 = ~3,300 emails/day
-  // Pro: ~$0.50 = ~1,650 emails/day (covers full 500-email initial sync)
-  // Free: ~$0.05 = ~165 emails/day (if AI enabled for free tier)
-  if (tier === 'elite' || tier === 'admin') return 100  // $1.00
-  if (tier === 'pro') return 50                          // $0.50
-  return 5                                               // $0.05
+  // Cost tracking uses Math.max(1, ceil(raw)) so each email registers as ≥1 cent
+  // even though actual provider cost is ~$0.0003. Caps are set against tracked cents.
+  // Elite/Admin: $20.00 = ~20,000 emails/day
+  // Pro: $5.00 = ~5,000 emails/day (covers large initial syncs)
+  // Free: $0.20 = ~200 emails/day
+  if (tier === 'elite' || tier === 'admin') return 2000  // $20.00
+  if (tier === 'pro') return 500                          // $5.00
+  return 20                                               // $0.20
 }
 
 export async function assertWithinDailyAIBudget(userId: string, tier: UserTier) {

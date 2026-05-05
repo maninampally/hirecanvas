@@ -7,13 +7,6 @@ export function getQueueConnection(): ConnectionOptions {
   return _queueConnection
 }
 
-// Lazy proxy — resolved on first property access so build-time imports don't throw
-export const queueConnection: ConnectionOptions = new Proxy({} as ConnectionOptions, {
-  get(_target, prop) {
-    return getQueueConnection()[prop as keyof ConnectionOptions]
-  },
-})
-
 export const defaultJobOptions: JobsOptions = {
   attempts: 3,
   backoff: {

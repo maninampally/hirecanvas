@@ -3,6 +3,7 @@
 import { generateCoverLetter } from '@/lib/ai/coverLetter'
 import { runATSChecker } from '@/lib/ai/atsChecker'
 import { createClient } from '@/lib/supabase/server'
+import { getResumeDownloadUrl as getJobResumeSignedUrl } from '@/actions/resumeUpload'
 
 export type ResumeItem = {
   id: string
@@ -16,6 +17,23 @@ export type ResumeItem = {
   uploaded_at: string | null
   created_at: string
 }
+
+/** Row from `job_resumes` (+ job labels) shown alongside library resumes on /resumes */
+export type JobAttachedResumeRow = {
+  kind: 'job'
+  id: string
+  job_id: string
+  job_company: string
+  job_title: string
+  file_name: string
+  file_size: number
+  mime_type: string
+  created_at: string
+}
+
+export type LibraryResumeRow = { kind: 'library' } & ResumeItem
+
+export type UnifiedResumeRow = LibraryResumeRow | JobAttachedResumeRow
 
 function sanitizeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -55,6 +73,123 @@ export async function getResumes() {
 
   if (error) throw error
   return (data || []) as ResumeItem[]
+}
+
+/**
+ * Library resumes plus job-attached resumes (uploaded from Applications),
+ * merged newest-first for the /resumes page.
+ */
+export async function getUnifiedResumeList(): Promise<UnifiedResumeRow[]> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: libRows, error: libError } = await supabase
+    .from('resumes')
+    .select('id,name,storage_path,file_size,file_type,version,is_default,ats_score,uploaded_at,created_at')
+    .eq('user_id', user.id)
+
+  if (libError) throw libError
+
+  const { data: jobRows, error: jobError } = await supabase
+    .from('job_resumes')
+    .select('id,job_id,file_name,file_size,mime_type,created_at')
+    .eq('user_id', user.id)
+
+  if (jobError) throw jobError
+
+  const jobIds = [...new Set((jobRows || []).map((r) => r.job_id))]
+  let jobMeta = new Map<string, { company: string; title: string }>()
+  if (jobIds.length > 0) {
+    const { data: jobsData } = await supabase
+      .from('jobs')
+      .select('id,company,title')
+      .eq('user_id', user.id)
+      .in('id', jobIds)
+
+    jobMeta = new Map(
+      (jobsData || []).map((j) => [
+        j.id,
+        { company: j.company || 'Unknown', title: j.title || 'Role' },
+      ])
+    )
+  }
+
+  const library: UnifiedResumeRow[] = (libRows || []).map((row) => ({
+    kind: 'library' as const,
+    ...row,
+  }))
+
+  const fromJobs: UnifiedResumeRow[] = (jobRows || []).map((row) => {
+    const meta = jobMeta.get(row.job_id)
+    return {
+      kind: 'job' as const,
+      id: row.id,
+      job_id: row.job_id,
+      job_company: meta?.company ?? 'Unknown company',
+      job_title: meta?.title ?? 'Role',
+      file_name: row.file_name,
+      file_size: row.file_size,
+      mime_type: row.mime_type,
+      created_at: row.created_at,
+    }
+  })
+
+  const merged = [...library, ...fromJobs]
+  merged.sort((a, b) => {
+    const ta =
+      a.kind === 'library'
+        ? new Date(a.uploaded_at || a.created_at).getTime()
+        : new Date(a.created_at).getTime()
+    const tb =
+      b.kind === 'library'
+        ? new Date(b.uploaded_at || b.created_at).getTime()
+        : new Date(b.created_at).getTime()
+    return tb - ta
+  })
+
+  return merged
+}
+
+export async function getResumeSignedUrlForPreview(
+  params: { kind: 'library'; id: string } | { kind: 'job'; id: string }
+): Promise<{ url: string; fileName: string; mimeType: string }> {
+  if (params.kind === 'job') {
+    return getJobResumeSignedUrl(params.id)
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Unauthorized')
+
+  const { data: resume, error } = await supabase
+    .from('resumes')
+    .select('name,storage_path,file_type')
+    .eq('id', params.id)
+    .eq('user_id', user.id)
+    .single<{ name: string; storage_path: string; file_type: string | null }>()
+
+  if (error || !resume) throw new Error('Resume not found')
+
+  const { data: signed, error: signedError } = await supabase.storage
+    .from('resumes')
+    .createSignedUrl(resume.storage_path, 60 * 60)
+
+  if (signedError || !signed?.signedUrl) {
+    throw new Error(signedError?.message || 'Failed to create preview link')
+  }
+
+  return {
+    url: signed.signedUrl,
+    fileName: resume.name,
+    mimeType: resume.file_type || 'application/octet-stream',
+  }
 }
 
 export async function uploadResume(formData: FormData) {

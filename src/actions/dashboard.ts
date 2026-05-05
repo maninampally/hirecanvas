@@ -3,7 +3,7 @@
 import { runWithLLMRouter } from '@/lib/ai/llmRouter'
 import { createClient } from '@/lib/supabase/server'
 
-type JobStatus = 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected'
+type JobStatus = 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected' | 'Closed'
 
 type JobRow = {
   id: string
@@ -12,6 +12,8 @@ type JobRow = {
   created_at: string
   updated_at: string
   applied_date: string | null
+  source: string | null
+  salary_range: string | null
 }
 
 type TimelineRow = {
@@ -35,6 +37,7 @@ export type PipelineFunnelDatum = {
   stage: FunnelStage
   count: number
   conversionFromPrevious: number | null
+  avgDaysInStage: number | null
 }
 
 export type ResponseRateDatum = {
@@ -50,6 +53,26 @@ export type ActivityHeatmapCell = {
   weekIndex: number
   dayIndex: number
   intensity: number
+}
+
+export type SourceBreakdownDatum = {
+  source: string
+  applied: number
+  interview: number
+  offer: number
+  rejected: number
+}
+
+export type ResponseTimeBucket = {
+  bucket: string
+  count: number
+}
+
+export type SalaryDatum = {
+  status: string
+  min: number
+  max: number
+  count: number
 }
 
 export type DashboardAnalytics = {
@@ -69,6 +92,9 @@ export type DashboardAnalytics = {
     longestStreak: number
     achievements: Array<{ key: string; label: string; unlocked: boolean }>
   }
+  sourceBreakdown: SourceBreakdownDatum[]
+  responseDistribution: ResponseTimeBucket[]
+  salaryAnalytics: SalaryDatum[]
 }
 
 export type WeeklyStrategyReport = {
@@ -103,6 +129,14 @@ function stageFromStatus(status: JobStatus): FunnelStage | null {
   if (status === 'Interview') return 'Interview'
   if (status === 'Offer') return 'Offer'
   return null
+}
+
+function parseSalaryRange(raw: string | null): { min: number; max: number } | null {
+  if (!raw) return null
+  const numbers = raw.match(/[\d,]+/g)?.map(s => parseInt(s.replace(/,/g, ''), 10)).filter(n => !isNaN(n) && n > 0)
+  if (!numbers || numbers.length === 0) return null
+  numbers.sort((a, b) => a - b)
+  return { min: numbers[0], max: numbers[numbers.length - 1] }
 }
 
 /** Calendar day in the user's local timezone (avoid UTC day collisions in heatmaps). */
@@ -156,7 +190,7 @@ async function getDashboardData() {
 
   const { data: jobsData, error: jobsError } = await supabase
     .from('jobs')
-    .select('id,company,status,created_at,updated_at,applied_date')
+    .select('id,company,status,created_at,updated_at,applied_date,source,salary_range')
     .eq('user_id', user.id)
     .eq('is_archived', false)
 
@@ -267,25 +301,37 @@ function buildAnalytics(
     }
   }
 
-  const funnel: PipelineFunnelDatum[] = FUNNEL_STAGES.map((stage, index) => {
-    const count = funnelCounts[stage]
-    if (index === 0) {
-      return {
-        stage,
-        count,
-        conversionFromPrevious: null,
+  const stageDurations = new Map<FunnelStage, number[]>()
+  for (const stage of FUNNEL_STAGES) stageDurations.set(stage, [])
+
+  for (const job of jobs) {
+    const events = timelineByJob.get(job.id) || []
+    if (events.length === 0) continue
+
+    for (let i = 0; i < events.length - 1; i++) {
+      const currentStage = stageFromStatus(events[i].status)
+      if (!currentStage) continue
+      const currentDate = toDateValue(events[i].changed_at)
+      const nextDate = toDateValue(events[i + 1].changed_at)
+      if (currentDate && nextDate) {
+        const days = daysBetween(currentDate, nextDate)
+        stageDurations.get(currentStage)?.push(days)
       }
     }
+  }
 
-    const previousStage = FUNNEL_STAGES[index - 1]
-    const previousCount = funnelCounts[previousStage]
-    const conversionFromPrevious =
-      previousCount > 0 ? Math.round((count / previousCount) * 1000) / 10 : 0
+  const funnel: PipelineFunnelDatum[] = FUNNEL_STAGES.map((stage, index) => {
+    const count = funnelCounts[stage]
+    const durations = stageDurations.get(stage) || []
+    const avgDays = durations.length > 0
+      ? Math.round((durations.reduce((a, b) => a + b, 0) / durations.length) * 10) / 10
+      : null
 
     return {
       stage,
       count,
-      conversionFromPrevious,
+      conversionFromPrevious: index === 0 ? null : (funnelCounts[FUNNEL_STAGES[index - 1]] > 0 ? Math.round((count / funnelCounts[FUNNEL_STAGES[index - 1]]) * 1000) / 10 : 0),
+      avgDaysInStage: avgDays,
     }
   })
 
@@ -392,6 +438,76 @@ function buildAnalytics(
     unlocked: item.check || unlockedAchievements.includes(item.key),
   }))
 
+  // Source breakdown
+  const sourceAgg = new Map<string, SourceBreakdownDatum>()
+  for (const job of jobs) {
+    const src = job.source || 'Manual'
+    const existing = sourceAgg.get(src) || { source: src, applied: 0, interview: 0, offer: 0, rejected: 0 }
+    if (job.status === 'Interview' || job.status === 'Screening') existing.interview += 1
+    else if (job.status === 'Offer') existing.offer += 1
+    else if (job.status === 'Rejected') existing.rejected += 1
+    else existing.applied += 1
+    sourceAgg.set(src, existing)
+  }
+  const sourceBreakdown = [...sourceAgg.values()].sort((a, b) =>
+    (b.applied + b.interview + b.offer + b.rejected) - (a.applied + a.interview + a.offer + a.rejected)
+  ).slice(0, 8)
+
+  // Response time distribution
+  const RESPONSE_BUCKETS = ['0-3d', '4-7d', '8-14d', '15-30d', '30+d', 'Never'] as const
+  const responseCounts: Record<string, number> = {}
+  for (const b of RESPONSE_BUCKETS) responseCounts[b] = 0
+
+  for (const job of jobs) {
+    const appliedAt = toDateValue(job.applied_date) || toDateValue(job.created_at)
+    if (!appliedAt) { responseCounts['Never'] += 1; continue }
+
+    const events = timelineByJob.get(job.id) || []
+    const firstResponse = events.find((event) => {
+      const changedAt = toDateValue(event.changed_at)
+      return Boolean(changedAt && changedAt >= appliedAt && responseStatuses.has(event.status))
+    })
+
+    const firstResponseAt = toDateValue(firstResponse?.changed_at) ||
+      (responseStatuses.has(job.status) ? toDateValue(job.updated_at) : null)
+
+    if (!firstResponseAt) { responseCounts['Never'] += 1; continue }
+
+    const days = daysBetween(appliedAt, firstResponseAt)
+    if (days <= 3) responseCounts['0-3d'] += 1
+    else if (days <= 7) responseCounts['4-7d'] += 1
+    else if (days <= 14) responseCounts['8-14d'] += 1
+    else if (days <= 30) responseCounts['15-30d'] += 1
+    else responseCounts['30+d'] += 1
+  }
+
+  const responseDistribution: ResponseTimeBucket[] = RESPONSE_BUCKETS.map(b => ({
+    bucket: b,
+    count: responseCounts[b],
+  }))
+
+  // Salary analytics
+  const salaryByStatus = new Map<string, { totalMin: number; totalMax: number; count: number }>()
+  for (const job of jobs) {
+    const parsed = parseSalaryRange(job.salary_range)
+    if (!parsed) continue
+    const status = job.status
+    const existing = salaryByStatus.get(status) || { totalMin: 0, totalMax: 0, count: 0 }
+    existing.totalMin += parsed.min
+    existing.totalMax += parsed.max
+    existing.count += 1
+    salaryByStatus.set(status, existing)
+  }
+
+  const salaryAnalytics: SalaryDatum[] = [...salaryByStatus.entries()]
+    .map(([status, data]) => ({
+      status,
+      min: Math.round(data.totalMin / data.count),
+      max: Math.round(data.totalMax / data.count),
+      count: data.count,
+    }))
+    .sort((a, b) => b.count - a.count)
+
   return {
     summary,
     funnel,
@@ -409,6 +525,9 @@ function buildAnalytics(
       longestStreak: goals?.longest_streak || 0,
       achievements,
     },
+    sourceBreakdown,
+    responseDistribution,
+    salaryAnalytics,
   }
 }
 

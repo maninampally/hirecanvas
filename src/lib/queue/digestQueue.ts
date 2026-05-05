@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import { defaultJobOptions, queueConnection } from '@/lib/queue/connection'
+import { defaultJobOptions, getQueueConnection } from '@/lib/queue/connection'
 
 export const DIGEST_QUEUE_NAME = 'daily-digest'
 
@@ -13,7 +13,7 @@ let digestQueue: Queue<DigestJobPayload> | null = null
 export function getDigestQueue() {
   if (!digestQueue) {
     digestQueue = new Queue<DigestJobPayload>(DIGEST_QUEUE_NAME, {
-      connection: queueConnection,
+      connection: getQueueConnection(),
       defaultJobOptions,
     })
   }

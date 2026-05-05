@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq'
-import { queueConnection } from '@/lib/queue/connection'
+import { getQueueConnection } from '@/lib/queue/connection'
 import { DIGEST_QUEUE_NAME, type DigestJobPayload } from '@/lib/queue/digestQueue'
 
 export function createDigestWorker(
@@ -11,7 +11,7 @@ export function createDigestWorker(
       await processor(job.data)
     },
     {
-      connection: queueConnection,
+      connection: getQueueConnection(),
       concurrency: 1,
     }
   )

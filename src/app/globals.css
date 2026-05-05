@@ -5,7 +5,7 @@
   --font-heading: var(--font-sora, "Sora", "Manrope", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
   --color-primary: #14b8a6;
   --color-primary-dark: #0d9488;
-  --color-page-bg: #f0fdfb;
+  --color-page-bg: #f8fafc;
   --color-sidebar-bg: #f0fdfa;
 }
 
@@ -18,7 +18,7 @@ html {
 }
 
 body {
-  background-color: #f0fdfb;
+  background-color: #f8fafc;
   color: #134e4a;
 }
 

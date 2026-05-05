@@ -65,13 +65,14 @@ export function ReviewQueue() {
       const title = stage3?.corrected_role || stage2?.role || 'Unknown Role'
       const statusRaw = stage3?.corrected_status || stage2?.status || 'Applied'
       
-      let status: 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected' = 'Applied'
+      let status: 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected' | 'Closed' = 'Applied'
       if (['wishlist'].includes(statusRaw.toLowerCase())) status = 'Wishlist'
       if (['applied'].includes(statusRaw.toLowerCase())) status = 'Applied'
       if (['screening', 'screen'].includes(statusRaw.toLowerCase())) status = 'Screening'
       if (['interview', 'interviews'].includes(statusRaw.toLowerCase())) status = 'Interview'
       if (['offer', 'offered'].includes(statusRaw.toLowerCase())) status = 'Offer'
       if (['rejected', 'reject'].includes(statusRaw.toLowerCase())) status = 'Rejected'
+      if (['closed', 'withdrawn', 'cancelled'].includes(statusRaw.toLowerCase())) status = 'Closed'
 
       await acceptReviewItem(item.id, {
         title,

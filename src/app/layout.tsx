@@ -46,6 +46,23 @@ export const metadata: Metadata = {
     description: 'Track job applications, sync Gmail, and manage your pipeline with AI extraction.',
     images: ['/og.svg'],
   },
+  manifest: '/manifest.json',
+  icons: {
+    icon: [
+      { url: '/icon.png', sizes: '192x192', type: 'image/png' },
+      { url: '/apple-icon.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'HireCanvas',
+  },
+  other: {
+    'apple-mobile-web-app-capable': 'yes',
+    'mobile-web-app-capable': 'yes',
+  },
 };
 
 export default function RootLayout({
@@ -59,9 +76,20 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       className={`h-full antialiased ${manrope.variable} ${sora.variable}`}
     >
-      <body className="min-h-full flex flex-col bg-[#f0fdfb] font-sans">
+      <body className="min-h-full flex flex-col bg-[#f8fafc] font-sans">
         {children}
         <Toaster position="top-right" richColors />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js');
+                });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   );

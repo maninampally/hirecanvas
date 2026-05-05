@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/client'
 
 export type SyncStatus = {
   id: string
-  status: 'idle' | 'in_progress' | 'completed' | 'failed'
+  status: 'idle' | 'in_progress' | 'completed' | 'failed' | 'stopped'
   total_emails: number
   processed_count: number
   new_jobs_found: number
@@ -33,6 +33,10 @@ export function useSyncStatus(userId?: string) {
       }
     }
 
+    const busyPollMs = 2000
+    const idlePollMs = 5000
+    const latestBusyRef = { current: false }
+
     const refreshStatus = async () => {
       try {
         const [statusRes, queueRes] = await Promise.all([
@@ -40,14 +44,23 @@ export function useSyncStatus(userId?: string) {
           fetch('/api/sync/queue')
         ])
 
+        let nextStatus: SyncStatus | null | undefined
+        let queueData: QueueStatus | undefined
+
         if (statusRes.ok) {
           const data = (await statusRes.json()) as { status: SyncStatus | null }
+          nextStatus = data.status ?? undefined
           if (mounted) setStatus(data.status)
         }
 
         if (queueRes.ok) {
-          const qData = (await queueRes.json()) as QueueStatus
-          if (mounted) setQueueStatus(qData)
+          queueData = (await queueRes.json()) as QueueStatus
+          if (mounted) setQueueStatus(queueData)
+        }
+
+        if (mounted) {
+          latestBusyRef.current =
+            nextStatus?.status === 'in_progress' || queueData?.isExtracting === true
         }
       } catch (err) {
         console.error('Error fetching sync status:', err)
@@ -87,13 +100,22 @@ export function useSyncStatus(userId?: string) {
       )
       .subscribe()
 
-    const pollId = setInterval(() => {
-      void refreshStatus()
-    }, 5000)
+    let pollTimeout: ReturnType<typeof setTimeout> | undefined
+
+    const schedulePoll = () => {
+      if (!mounted) return
+      const delay = latestBusyRef.current ? busyPollMs : idlePollMs
+      pollTimeout = setTimeout(async () => {
+        await refreshStatus()
+        schedulePoll()
+      }, delay)
+    }
+
+    schedulePoll()
 
     return () => {
       mounted = false
-      clearInterval(pollId)
+      if (pollTimeout) clearTimeout(pollTimeout)
       void supabase.removeChannel(channel)
     }
   }, [supabase, userId])

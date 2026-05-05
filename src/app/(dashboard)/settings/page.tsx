@@ -16,6 +16,8 @@ import {
   setUserTimezone,
   updateAccountProfile,
   updateNotificationPreferences,
+  getAutoSyncSettings,
+  updateAutoSyncTime,
   type ConnectionStatus,
   type GmailConnectionCheckResult,
   type MFAStatus,
@@ -153,6 +155,11 @@ export default function SettingsPage() {
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
   const [onboardingBusy, setOnboardingBusy] = useState(false)
   const [referralStatus, setReferralStatus] = useState<ReferralStatus | null>(null)
+  
+  const [autoSyncTime, setAutoSyncTime] = useState<string | null>(null)
+  const [loadingAutoSync, setLoadingAutoSync] = useState(false)
+  const [savingAutoSync, setSavingAutoSync] = useState(false)
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
 
   function describeDevice(userAgent: string | null) {
     if (!userAgent) return 'Unknown device'
@@ -226,20 +233,23 @@ export default function SettingsPage() {
     setLoadingSyncHealth(true)
     setSyncHealthError(null)
     try {
+      const isAdmin = user?.tier === 'admin'
       const [syncRes, provRes] = await Promise.all([
         fetch('/api/sync/health'),
-        fetch('/api/admin/providers'),
+        isAdmin ? fetch('/api/admin/providers') : Promise.resolve(null as Response | null),
       ])
-      
+
       const payload = (await syncRes.json()) as SyncHealthResponse & { error?: string }
       if (!syncRes.ok) {
         throw new Error(payload.error || 'Unable to load ingestion health')
       }
       setSyncHealth(payload)
 
-      if (provRes.ok) {
-        const provData = await provRes.json()
+      if (provRes?.ok) {
+        const provData = (await provRes.json()) as { providers?: AIProviderHealth[] }
         setProviderHealth(provData.providers || [])
+      } else if (!isAdmin) {
+        setProviderHealth([])
       }
 
       const keysRes = await fetch('/api/settings/provider-keys')
@@ -290,6 +300,36 @@ export default function SettingsPage() {
       clearTimeout(timer)
     }
   }, [])
+
+  useEffect(() => {
+    let mounted = true
+    const loadAutoSync = async () => {
+      setLoadingAutoSync(true)
+      try {
+        const settings = await getAutoSyncSettings()
+        if (mounted) {
+          setAutoSyncTime(settings.auto_sync_time)
+          setAutoSyncEnabled(!!settings.auto_sync_time)
+        }
+      } catch {
+        if (mounted) {
+          setAutoSyncTime(null)
+          setAutoSyncEnabled(false)
+        }
+      } finally {
+        if (mounted) setLoadingAutoSync(false)
+      }
+    }
+    const timer = setTimeout(() => {
+      if (user?.tier === 'elite') {
+        void loadAutoSync()
+      }
+    }, 0)
+    return () => {
+      mounted = false
+      clearTimeout(timer)
+    }
+  }, [user?.tier])
 
   useEffect(() => {
     let mounted = true
@@ -631,6 +671,45 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSaveAutoSyncTime() {
+    if (!autoSyncEnabled && !autoSyncTime) {
+      // Disable auto-sync
+      setSavingAutoSync(true)
+      try {
+        await updateAutoSyncTime(null)
+        setAutoSyncTime(null)
+        setAutoSyncEnabled(false)
+        toast.success('Auto-sync disabled')
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to save auto-sync time')
+      } finally {
+        setSavingAutoSync(false)
+      }
+      return
+    }
+
+    if (!autoSyncEnabled || !autoSyncTime) return
+
+    // Validate time format
+    const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/
+    if (!timeRegex.test(autoSyncTime)) {
+      toast.error('Invalid time format. Use HH:MM (24-hour).')
+      return
+    }
+
+    setSavingAutoSync(true)
+    try {
+      // The time is already in local format from the input
+      // It will be stored as-is and scheduler will convert to UTC for comparison
+      await updateAutoSyncTime(autoSyncTime)
+      toast.success(`Auto-sync scheduled for ${autoSyncTime} daily (your local time)`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save auto-sync time')
+    } finally {
+      setSavingAutoSync(false)
+    }
+  }
+
   const tabs = [
     { id: 'account', label: 'Account', icon: MdPerson },
     { id: 'security', label: 'Security', icon: MdSecurity },
@@ -706,16 +785,28 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium text-slate-700">Avatar URL</label>
-                <Input
-                  value={accountForm.avatar_url}
-                  placeholder="https://..."
-                  onChange={(event) =>
-                    setAccountForm((previous) => ({
-                      ...previous,
-                      avatar_url: event.target.value,
-                    }))
-                  }
-                />
+                <div className="flex items-center gap-3">
+                  <Input
+                    value={accountForm.avatar_url}
+                    placeholder="https://..."
+                    onChange={(event) =>
+                      setAccountForm((previous) => ({
+                        ...previous,
+                        avatar_url: event.target.value,
+                      }))
+                    }
+                  />
+                  {accountForm.avatar_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={accountForm.avatar_url}
+                      alt="Avatar preview"
+                      className="h-10 w-10 rounded-full object-cover border border-slate-200 flex-shrink-0"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                      onLoad={(e) => { (e.currentTarget as HTMLImageElement).style.display = '' }}
+                    />
+                  )}
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium text-slate-700">Plan</label>
@@ -732,6 +823,21 @@ export default function SettingsPage() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-sm font-medium text-slate-900">Referral Program</p>
                   <p className="text-xs text-slate-500 mt-1">Share your code and earn one month credit for qualified referrals.</p>
+                  {referralStatus.referralUrl.includes('localhost') || referralStatus.referralUrl.includes('127.0.0.1') ? (
+                    <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div>
+                        <p className="text-xs font-semibold text-amber-800">Dev Environment URL</p>
+                        <p className="text-xs text-amber-700 mt-0.5">
+                          This link shows <code className="bg-amber-100 px-1 rounded font-mono">localhost</code> because{' '}
+                          <code className="bg-amber-100 px-1 rounded font-mono">NEXT_PUBLIC_APP_URL</code> is not set to your production domain.
+                          Set it in your hosting environment (Vercel, Railway, etc.) before sharing this link.
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="mt-2 flex items-center gap-2">
                     <Input value={referralStatus.referralUrl} readOnly />
                     <Button
@@ -748,6 +854,67 @@ export default function SettingsPage() {
                   <p className="mt-2 text-xs text-slate-600">
                     Invites: {referralStatus.totalInvites} • Qualified: {referralStatus.qualifiedInvites} • Rewarded: {referralStatus.rewardedInvites}
                   </p>
+                </div>
+              )}
+
+
+              {user?.tier === 'elite' && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">Auto-Sync Schedule</p>
+                    <p className="text-xs text-slate-500 mt-1">Set a time for automatic daily email syncs in your local timezone.</p>
+                  </div>
+                  
+                  {loadingAutoSync ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-400 py-2">
+                      <span className="w-4 h-4 border-2 border-slate-200 border-t-teal-500 rounded-full animate-spin" />
+                      Loading settings...
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={autoSyncEnabled}
+                          onChange={(event) => setAutoSyncEnabled(event.target.checked)}
+                          disabled={savingAutoSync}
+                          id="auto-sync-enable"
+                          className="h-4.5 w-4.5 rounded-md border-slate-300 text-teal-500 transition-colors focus:ring-2 focus:ring-teal-500/40 focus:ring-offset-0 cursor-pointer accent-teal-500"
+                        />
+                        <label htmlFor="auto-sync-enable" className="text-sm text-slate-700 cursor-pointer">
+                          Enable daily auto-sync
+                        </label>
+                      </div>
+
+                      {autoSyncEnabled && (
+                        <div className="space-y-2">
+                          <label className="block text-sm font-medium text-slate-700">Sync Time (Your Local Time)</label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              value={autoSyncTime || '09:00'}
+                              onChange={(event) => setAutoSyncTime(event.target.value)}
+                              disabled={savingAutoSync}
+                              className="w-32"
+                            />
+                            <span className="text-xs text-slate-500">Local</span>
+                          </div>
+                          <p className="text-xs text-slate-400">
+                            Sync will run daily at {autoSyncTime || '09:00'} UTC
+                          </p>
+                        </div>
+                      )}
+
+                      <Button
+                        size="sm"
+                        onClick={() => void handleSaveAutoSyncTime()}
+                        disabled={savingAutoSync || loadingAutoSync}
+                        className="w-full"
+                      >
+                        {savingAutoSync ? 'Saving...' : 'Save Schedule'}
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
 
