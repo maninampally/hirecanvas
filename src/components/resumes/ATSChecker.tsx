@@ -83,17 +83,28 @@ export function ATSChecker() {
         <div className="grid md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <p className="text-xs font-medium uppercase text-slate-600">Upload Resume</p>
-            <Input
-              type="file"
-              accept=".txt,.md,.rtf,text/plain,text/markdown,application/rtf"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) {
-                  void handleResumeFile(file)
-                }
-              }}
-            />
-            <p className="text-xs text-slate-500">Supported for analysis: .txt, .md, .rtf</p>
+            <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center cursor-pointer hover:border-teal-400 hover:bg-teal-50/40 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              {resumeName ? (
+                <span className="text-sm font-medium text-teal-700">{resumeName}</span>
+              ) : (
+                <span className="text-sm text-slate-500">Click to choose file or drop here</span>
+              )}
+              <span className="text-xs text-slate-400">Supported: .txt, .md, .rtf</span>
+              <input
+                type="file"
+                accept=".txt,.md,.rtf,text/plain,text/markdown,application/rtf"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) {
+                    void handleResumeFile(file)
+                  }
+                }}
+              />
+            </label>
           </div>
 
           <div className="space-y-2">

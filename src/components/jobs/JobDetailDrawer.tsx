@@ -13,7 +13,6 @@ import {
 import {
   deleteJobResume,
   getJobResumes,
-  getResumeDownloadUrl,
   type JobResumeItem,
   uploadJobResume,
 } from '@/actions/resumeUpload'
@@ -25,7 +24,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StatusDropdown } from '@/components/ui/status-badge'
 import { toast } from 'sonner'
-import { MdUploadFile, MdDelete, MdDownload, MdInsertDriveFile, MdClose } from 'react-icons/md'
+import { MdUploadFile, MdDelete, MdInsertDriveFile, MdClose } from 'react-icons/md'
 
 interface JobDetailDrawerProps {
   job: Job | null
@@ -199,17 +198,7 @@ export function JobDetailDrawer({
     }
   }
 
-  async function handleResumeDownload(resumeId: string) {
-    try {
-      const { url, fileName } = await getResumeDownloadUrl(resumeId)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      link.click()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to download resume')
-    }
-  }
+
 
   async function handleAddToOfferComparison() {
     if (!job) return
@@ -243,6 +232,19 @@ export function JobDetailDrawer({
       <div className="fixed right-0 top-0 z-50 h-full w-full max-w-[460px] overflow-y-auto border-l border-slate-200 bg-white shadow-[-8px_0_24px_rgba(0,0,0,0.08)]">
         {/* Header */}
         <div className="sticky top-0 z-10 border-b border-slate-100 bg-white px-6 py-5">
+          {/* Breadcrumb */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-teal-600 transition-colors mb-3"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+            Applications
+            <span className="text-slate-300 mx-1">/</span>
+            <span className="text-slate-600 font-medium truncate max-w-[200px]">{job.company}</span>
+          </button>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-lg font-bold tracking-tight text-slate-900">{job.title}</h2>
@@ -427,30 +429,101 @@ export function JobDetailDrawer({
                 </div>
               )}
 
-              {activeTab === 'Timeline' && (
-                <div className="space-y-4">
-                  {isLoadingDetails && <p className="text-sm text-slate-600">Loading timeline...</p>}
-                  {!isLoadingDetails && timeline.length === 0 && (
-                    <p className="text-sm text-slate-600">No timeline events yet. Status changes will appear here.</p>
-                  )}
-                  {timeline.map((item) => (
-                    <div key={item.id} className="flex gap-4">
-                      <div className="w-3 h-3 rounded-full mt-1 flex-shrink-0 bg-teal-500" />
-                      <div>
-                        <p className="font-medium text-slate-900">{item.status}</p>
-                        <p className="text-xs text-slate-600">{formatDate(item.changed_at)}</p>
-                        {item.notes && <p className="text-sm text-slate-700 mt-2">{item.notes}</p>}
-                        {typeof item.ai_confidence_score === 'number' && (
-                          <p className="text-xs text-slate-500 mt-1">
-                            Confidence: {item.ai_confidence_score}%
-                            {item.requires_review ? ' • Needs review' : ''}
-                          </p>
+              {activeTab === 'Timeline' && (() => {
+                // Build unified feed from timeline + emails
+                type FeedItem =
+                  | { kind: 'status'; id: string; status: string; changed_at: string; notes?: string | null; ai_confidence_score?: number | null; requires_review?: boolean | null }
+                  | { kind: 'email'; id: string; subject: string | null; from_address: string | null; received_at: string | null; email_direction: string | null }
+
+                const statusColors: Record<string, string> = {
+                  Wishlist: 'bg-teal-500',
+                  Applied: 'bg-blue-500',
+                  Screening: 'bg-amber-500',
+                  Interview: 'bg-amber-500',
+                  Offer: 'bg-emerald-500',
+                  Accepted: 'bg-emerald-600',
+                  Rejected: 'bg-rose-500',
+                  Closed: 'bg-slate-400',
+                }
+
+                const feed: FeedItem[] = [
+                  ...timeline.map((t) => ({ kind: 'status' as const, ...t })),
+                  ...emails.map((e) => ({ kind: 'email' as const, ...e })),
+                ].sort((a, b) => {
+                  const aTime = a.kind === 'status' ? a.changed_at : (a.received_at ?? '')
+                  const bTime = b.kind === 'status' ? b.changed_at : (b.received_at ?? '')
+                  return new Date(bTime).getTime() - new Date(aTime).getTime()
+                })
+
+                return (
+                  <div className="space-y-0">
+                    {isLoadingDetails && (
+                      <div className="space-y-4">
+                        {[1, 2, 3, 4].map((i) => (
+                          <div key={i} className="flex gap-3 animate-pulse">
+                            <div className="w-3 h-3 rounded-full bg-slate-200 mt-1 flex-shrink-0" />
+                            <div className="flex-1 space-y-1.5">
+                              <div className="h-3 w-32 rounded bg-slate-100" />
+                              <div className="h-3 w-48 rounded bg-slate-100" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!isLoadingDetails && feed.length === 0 && (
+                      <div className="py-8 text-center">
+                        <p className="text-sm text-slate-500">No activity yet.</p>
+                        <p className="text-xs text-slate-400 mt-1">Status changes and synced emails will appear here.</p>
+                      </div>
+                    )}
+                    {!isLoadingDetails && feed.map((item, idx) => (
+                      <div key={item.id} className={`flex gap-3 py-3 ${idx < feed.length - 1 ? 'border-b border-slate-100' : ''}`}>
+                        {item.kind === 'status' ? (
+                          <>
+                            <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${statusColors[item.status] ?? 'bg-slate-400'}`} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-semibold text-slate-900">Status → {item.status}</span>
+                                {item.requires_review && (
+                                  <span className="text-[10px] rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 font-semibold">Needs Review</span>
+                                )}
+                                {typeof item.ai_confidence_score === 'number' && (
+                                  <span className={`text-[10px] rounded-full px-2 py-0.5 font-semibold ${item.ai_confidence_score < 70 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>
+                                    {item.ai_confidence_score}% confidence
+                                  </span>
+                                )}
+                              </div>
+                              {item.notes && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{item.notes}</p>}
+                              <p className="text-[11px] text-slate-400 mt-0.5">{formatDate(item.changed_at)}</p>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 bg-indigo-400" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-slate-800 truncate">{item.subject || '(no subject)'}</span>
+                                <span className={`text-[10px] rounded-full px-2 py-0.5 font-semibold flex-shrink-0 ${
+                                  item.email_direction === 'outbound'
+                                    ? 'bg-teal-50 text-teal-700'
+                                    : item.email_direction === 'inbound'
+                                      ? 'bg-indigo-50 text-indigo-700'
+                                      : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {item.email_direction === 'outbound' ? 'You sent' : item.email_direction === 'inbound' ? 'They sent' : 'Email'}
+                                </span>
+                              </div>
+                              {item.from_address && <p className="text-[11px] text-slate-400 mt-0.5 truncate">{item.from_address}</p>}
+                              <p className="text-[11px] text-slate-400 mt-0.5">{formatDate(item.received_at)}</p>
+                            </div>
+                          </>
                         )}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )
+              })()}
+
 
               {activeTab === 'Resume' && (
                 <div className="space-y-4">
@@ -500,13 +573,6 @@ export function JobDetailDrawer({
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <button
-                          onClick={() => void handleResumeDownload(resume.id)}
-                          className="h-8 w-8 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:text-teal-600 hover:bg-teal-50 transition-colors flex items-center justify-center"
-                          title="Download"
-                        >
-                          <MdDownload className="text-lg" />
-                        </button>
                         <button
                           onClick={() => void handleResumeDelete(resume.id)}
                           disabled={deletingResumeId === resume.id}

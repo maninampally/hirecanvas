@@ -514,7 +514,7 @@ export async function setUserTimezone(timezone: string) {
 }
 
 export async function getAutoSyncSettings() {
-  const { user } = await getAuthenticatedUser()
+  await getAuthenticatedUser()
 
   const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings/auto-sync`, {
     headers: {
@@ -531,7 +531,7 @@ export async function getAutoSyncSettings() {
 }
 
 export async function updateAutoSyncTime(autoSyncTime: string | null) {
-  const { user } = await getAuthenticatedUser()
+  await getAuthenticatedUser()
 
   const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings/auto-sync`, {
     method: 'POST',

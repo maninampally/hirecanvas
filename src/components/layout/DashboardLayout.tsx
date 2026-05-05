@@ -8,7 +8,6 @@ import { CommandPalette } from '@/components/layout/CommandPalette'
 import { NotificationCenter } from '@/components/layout/NotificationCenter'
 import { ApplicationsSidebar } from '@/components/layout/ApplicationsSidebar'
 import { useAuthStore } from '@/stores/authStore'
-import { TierGate } from '@/components/ui/TierGate'
 import { createClient } from '@/lib/supabase/client'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
 import { toast } from 'sonner'
@@ -32,6 +31,10 @@ import {
   MdBalance,
   MdCreditCard,
   MdViewSidebar,
+  MdHistory,
+  MdMoreHoriz,
+  MdCalendarMonth,
+  MdBusiness,
 } from 'react-icons/md'
 
 function getNavigationSections(tier?: string) {
@@ -55,6 +58,7 @@ function getNavigationSections(tier?: string) {
       title: 'NETWORK',
       items: [
         { label: 'Contacts', href: '/contacts', icon: MdPeople },
+        { label: 'Companies', href: '/companies', icon: MdBusiness },
         { label: 'Outreach', href: '/outreach', icon: MdOutlineEmail },
         { label: 'Reminders', href: '/reminders', icon: MdNotifications },
       ],
@@ -66,12 +70,14 @@ function getNavigationSections(tier?: string) {
         { label: 'Interview Prep', href: '/interview-prep', icon: MdQuiz },
         { label: 'Templates', href: '/templates', icon: MdArticle },
         { label: 'Offers', href: '/offers', icon: MdBalance },
+        { label: 'Calendar', href: '/calendar', icon: MdCalendarMonth },
       ],
     },
     {
       title: 'SYSTEM',
       items: [
         ...systemItems,
+        { label: 'Sync Logs', href: '/sync-logs', icon: MdHistory },
         { label: 'Billing', href: '/billing', icon: MdCreditCard },
       ],
     },
@@ -82,15 +88,18 @@ const pathTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/applications': 'Applications',
   '/contacts': 'Contacts',
+  '/companies': 'Companies',
   '/outreach': 'Outreach',
   '/reminders': 'Reminders',
   '/resumes': 'Resumes',
   '/interview-prep': 'Interview Prep',
   '/templates': 'Templates',
+  '/calendar': 'Calendar',
   '/settings': 'Settings',
   '/admin': 'Admin',
   '/billing': 'Billing',
   '/offers': 'Offer Comparison',
+  '/sync-logs': 'Sync Logs',
 }
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -103,13 +112,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [applicationsPanelCollapsed, setApplicationsPanelCollapsed] = useState(() => {
     if (typeof window === 'undefined') return true
     return window.localStorage.getItem('hc:applications_sidebar_collapsed') !== 'false'
   })
   const [applicationsFilter, setApplicationsFilter] = useState<'All' | 'Active' | 'Interview' | 'Offer'>('All')
   const supabase = createClient()
-  const { status: syncStatus, syncInProgress } = useSyncStatus(user?.id)
+  const { syncInProgress } = useSyncStatus(user?.id)
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -173,10 +183,27 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const handleStopSync = async () => {
+    setIsSyncing(true)
+    try {
+      const response = await fetch('/api/sync/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = (await response.json()) as { message?: string; error?: string }
+      if (!response.ok) throw new Error(data.error || 'Unable to stop sync')
+      toast.success(data.message || 'Sync stopped')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to stop sync')
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   const pageTitle = pathTitles[pathname] || 'Dashboard'
 
   return (
-    <div className="flex h-screen bg-[#f0fdfb] overflow-hidden">
+    <div className="flex h-screen bg-[#f8fafc] overflow-hidden">
       {mobileSidebarOpen && (
         <button
           className="fixed inset-0 z-40 bg-black/35 lg:hidden"
@@ -202,11 +229,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-5">
+        <nav className="flex-1 overflow-y-auto p-3 space-y-2">
           {getNavigationSections(user?.tier).map((section) => (
             <div key={section.title}>
               {!collapsed && (
-                <p className="text-[10px] font-bold text-teal-600/70 uppercase tracking-widest mb-2 px-3">
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.07em] mb-1 px-3">
                   {section.title}
                 </p>
               )}
@@ -219,7 +246,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                       key={item.href}
                       href={item.href}
                       onClick={() => setMobileSidebarOpen(false)}
-                      className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                      className={`group flex items-center gap-3 px-3 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                         isActive
                           ? 'bg-teal-500 text-white shadow-md shadow-teal-500/25'
                           : 'text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-sm'
@@ -240,40 +267,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        {/* Sync + Collapse */}
+        {/* Collapse */}
         <div className="border-t border-teal-100/70 p-3 space-y-2">
-          <TierGate
-            currentTier={user?.tier}
-            allowedTiers={['pro', 'elite', 'admin']}
-            fallback={
-              !collapsed ? (
-                <button
-                  onClick={() => setShowUpgradeModal(true)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors"
-                >
-                  <MdSync className="text-lg" />
-                  {!collapsed && 'Upgrade to Sync'}
-                </button>
-              ) : null
-            }
-          >
-            <button
-              onClick={handleSyncInbox}
-              disabled={isSyncing || syncInProgress}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors disabled:opacity-50"
-            >
-              <MdSync className={`text-lg ${isSyncing || syncInProgress ? 'animate-spin-slow' : ''}`} />
-              {!collapsed && (isSyncing ? 'Syncing...' : syncInProgress ? 'In Progress...' : 'Sync Jobs')}
-            </button>
-            {!collapsed && syncInProgress && (
-              <p className="mt-1 px-1 text-[11px] text-teal-700">
-                Sync running in background...
-              </p>
-            )}
-          </TierGate>
-
           <button
             onClick={() => setCollapsed(!collapsed)}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-600 hover:bg-white/60 transition-colors"
           >
             {collapsed ? <MdChevronRight className="text-base" /> : <><MdChevronLeft className="text-base" /> Collapse</>}
@@ -318,6 +316,38 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Stop button - appears above sync when syncing */}
+            {(isSyncing || syncInProgress) && user?.tier && ['pro', 'elite', 'admin'].includes(user.tier) && (
+              <button
+                onClick={handleStopSync}
+                disabled={isSyncing}
+                className="flex items-center gap-2 h-9 px-3.5 rounded-xl text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 transition-colors disabled:opacity-50"
+              >
+                <MdSync className={`text-base ${isSyncing ? 'animate-spin-slow' : ''}`} />
+                <span className="hidden md:inline">{isSyncing ? 'Stopping...' : 'Stop'}</span>
+              </button>
+            )}
+
+            {/* Sync Jobs button */}
+            {user?.tier && ['pro', 'elite', 'admin'].includes(user.tier) ? (
+              <button
+                onClick={handleSyncInbox}
+                disabled={isSyncing || syncInProgress}
+                className="flex items-center gap-2 h-9 px-3.5 rounded-xl text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors disabled:opacity-50"
+              >
+                <MdSync className={`text-base ${isSyncing || syncInProgress ? 'animate-spin-slow' : ''}`} />
+                <span className="hidden md:inline">{isSyncing ? 'Syncing...' : syncInProgress ? 'In Progress...' : 'Sync'}</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowUpgradeModal(true)}
+                className="flex items-center gap-2 h-9 px-3.5 rounded-xl text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors"
+              >
+                <MdSync className="text-base" />
+                <span className="hidden md:inline">Upgrade</span>
+              </button>
+            )}
+
             {/* Search */}
             <button
               onClick={() => setShowCommandPalette(true)}
@@ -333,14 +363,15 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             {/* Sync status */}
             <NotificationCenter />
 
-            <button
+              <button
               type="button"
               onClick={() => setApplicationsPanelCollapsed((prev) => !prev)}
               className="hidden xl:flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-xs font-medium text-slate-600 hover:bg-white"
               title={applicationsPanelCollapsed ? 'Show applications sidebar' : 'Hide applications sidebar'}
+              aria-label={applicationsPanelCollapsed ? 'Show applications sidebar' : 'Hide applications sidebar'}
             >
               <MdViewSidebar className="text-base" />
-              {applicationsPanelCollapsed ? 'Show Apps' : 'Hide Apps'}
+              {applicationsPanelCollapsed ? 'Show Panel' : 'Hide Panel'}
             </button>
 
             {/* User Menu */}
@@ -427,7 +458,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               { href: '/contacts', label: 'Contacts', icon: MdPeople },
               { href: '/reminders', label: 'Reminders', icon: MdNotifications },
               { href: '/resumes', label: 'Resumes', icon: MdDescription },
-              { href: '/settings', label: 'Settings', icon: MdSettings },
             ].map((item) => {
               const Icon = item.icon
               const isActive = pathname === item.href
@@ -443,8 +473,48 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </Link>
               )
             })}
+            <button
+              type="button"
+              onClick={() => setShowMoreSheet(true)}
+              className={`flex flex-col items-center justify-center rounded-lg py-1.5 ${showMoreSheet ? 'text-teal-600 bg-teal-50' : 'text-slate-500'}`}
+            >
+              <MdMoreHoriz className="text-base" />
+              <span>More</span>
+            </button>
           </div>
         </nav>
+
+        {showMoreSheet && (
+          <>
+            <button className="fixed inset-0 z-40 bg-black/35 lg:hidden" onClick={() => setShowMoreSheet(false)} />
+            <div className="fixed bottom-0 inset-x-0 z-50 lg:hidden bg-white rounded-t-2xl border-t border-slate-200 px-4 pb-6 pt-3 animate-slide-up">
+              <div className="w-10 h-1 rounded-full bg-slate-300 mx-auto mb-4" />
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { href: '/outreach', label: 'Outreach', icon: MdOutlineEmail },
+                  { href: '/templates', label: 'Templates', icon: MdArticle },
+                  { href: '/offers', label: 'Offers', icon: MdBalance },
+                  { href: '/interview-prep', label: 'Interview Prep', icon: MdQuiz },
+                  { href: '/calendar', label: 'Calendar', icon: MdCalendarMonth },
+                  { href: '/companies', label: 'Companies', icon: MdBusiness },
+                  { href: '/sync-logs', label: 'Sync Logs', icon: MdHistory },
+                  { href: '/billing', label: 'Billing', icon: MdCreditCard },
+                  { href: '/settings', label: 'Settings', icon: MdSettings },
+                ].map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setShowMoreSheet(false)}
+                    className="flex flex-col items-center gap-1.5 p-3 rounded-xl hover:bg-slate-50 text-slate-600"
+                  >
+                    <item.icon className="text-xl" />
+                    <span className="text-[11px] font-medium">{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <UpgradeModal open={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
