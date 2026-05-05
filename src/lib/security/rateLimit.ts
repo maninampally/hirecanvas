@@ -29,6 +29,10 @@ export async function enforceRateLimit(
   limit: number,
   windowInSeconds: number
 ): Promise<RateLimitResult> {
+  if (!process.env.REDIS_URL?.trim()) {
+    return { allowed: true, remaining: limit, resetInSeconds: windowInSeconds }
+  }
+
   const redis = getRedisClient()
   const key = `rate_limit:${featureKey}:${userId}`
 

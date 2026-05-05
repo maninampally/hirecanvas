@@ -14,6 +14,12 @@ function getEncryptionKey() {
     if (decoded.length === 32) return decoded
   }
 
+  if (process.env.NODE_ENV !== 'production' && raw.length < 32) {
+    console.warn(
+      '[encryption] TOKEN_ENCRYPTION_KEY is short; using SHA-256 normalization (consistent per value, not random bytes)'
+    )
+  }
+
   return createHash('sha256').update(raw).digest()
 }
 

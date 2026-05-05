@@ -10,6 +10,7 @@
  *  - How many jobs currently exist
  *  - A verdict + concrete next step
  */
+import { findAuthUserIdByEmail } from '@/lib/supabase/findAuthUserIdByEmail'
 import { createServiceClient } from '@/lib/supabase/service'
 
 const RE_LIFECYCLE = /(interview|offer|thank you for applying|application (received|submitted|confirm|update)|unfortunately|not moving forward|next steps|update on your|status of your|we'?d like to|phone screen|technical (interview|screen|assessment)|assessment|coding challenge|take.?home)/i
@@ -25,19 +26,26 @@ async function main() {
 
   const supabase = createServiceClient()
 
+  const authUserId = await findAuthUserIdByEmail(supabase, email)
+  if (!authUserId) {
+    console.error(`Could not find auth user with email ${email}`)
+    process.exit(1)
+  }
+
   const { data: userRow, error: userErr } = await supabase
     .from('app_users')
-    .select('id,email,tier')
-    .eq('email', email)
-    .maybeSingle<{ id: string; email: string; tier: string }>()
+    .select('id,full_name,tier')
+    .eq('id', authUserId)
+    .maybeSingle<{ id: string; full_name: string | null; tier: string }>()
 
   if (userErr || !userRow) {
-    console.error(`Could not find user with email ${email}`)
+    console.error(`No app_users row for ${email} (id ${authUserId}).`)
     process.exit(1)
   }
 
   const userId = userRow.id
-  console.log(`\n=== HireCanvas pipeline diagnosis for ${userRow.email} (${userRow.tier}) ===\n`)
+  const display = email.trim()
+  console.log(`\n=== HireCanvas pipeline diagnosis for ${display} (${userRow.tier}) ===\n`)
 
   // --- FUNNEL --------------------------------------------------------------
   const { data: all } = await supabase
@@ -89,7 +97,6 @@ async function main() {
 
   // --- FALSE NEGATIVE CHECK ------------------------------------------------
   const suspectRejections = rejected.filter((r) => {
-    const text = `${r.subject || ''} ${r.from_address || ''}`
     return RE_LIFECYCLE.test(r.subject || '') || ATS_HINT.test(r.from_address || '')
   })
 

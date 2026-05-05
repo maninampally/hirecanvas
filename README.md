@@ -190,15 +190,13 @@ npm run worker:digest    # Start daily digest worker (BullMQ)
 - Full mobile responsiveness pass across core views
 - Auth-gated e2e execution in CI (`E2E_USER_EMAIL` / `E2E_USER_PASSWORD`)
 
-See [IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md) for the prioritized backlog.
-
 ---
 
 ## Key Documentation
 
 | File | Purpose |
 |------|---------|
-| **[IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md)** | Notes on shipped vs optional follow-ups |
+| **[AGENTS.md](AGENTS.md)** | Agent / IDE notes (Next.js quirks in this repo, git commit hooks) |
 
 ---
 
@@ -214,7 +212,7 @@ See [IMPLEMENTATION_GAPS.md](IMPLEMENTATION_GAPS.md) for the prioritized backlog
 
 ## Contributing
 
-Read `IMPLEMENTATION_GAPS.md` before writing any code — it contains current priorities and implementation guidance.
+Follow existing patterns in the codebase and keep changes scoped to the task at hand.
 
 ## License
 

@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import { defaultJobOptions, queueConnection } from '@/lib/queue/connection'
+import { defaultJobOptions, getQueueConnection } from '@/lib/queue/connection'
 
 export const EXTRACTION_QUEUE_NAME = 'ai-extraction'
 
@@ -12,6 +12,9 @@ export type ExtractionEmailPayload = {
   receivedAtIso: string
   contentHash: string | null
   emailDirection: 'outbound' | 'inbound' | 'unknown'
+  toAddress?: string | null
+  ccAddress?: string | null
+  bccAddress?: string | null
 }
 
 export type ExtractionJobPayload = {
@@ -31,7 +34,7 @@ let extractionQueue: Queue<ExtractionJobPayload> | null = null
 export function getExtractionQueue() {
   if (!extractionQueue) {
     extractionQueue = new Queue<ExtractionJobPayload>(EXTRACTION_QUEUE_NAME, {
-      connection: queueConnection,
+      connection: getQueueConnection(),
       defaultJobOptions,
     })
   }

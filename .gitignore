@@ -47,6 +47,15 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Local ad-hoc scripts (copy from supabase-query.temp.example.ts)
+scripts/*.temp.*
+scripts/quickCheck.ts
+
+# Dev-only docs (internal audit logs, not for production)
+Gravity_Observations.md
+TODO_FIXES.md
+IMPLEMENTATION_GAPS.md
+
 # IDE
 .vscode/
 .idea/
