@@ -18,7 +18,7 @@ import { enqueueExtractionJob } from '@/lib/queue/extractionQueue'
 import { type SyncJobPayload } from '@/lib/queue/syncQueue'
 import { recordAuditEvent } from '@/lib/security/audit'
 import { decryptSecret } from '@/lib/security/encryption'
-import { releaseSyncLock } from '@/lib/security/syncLock'
+import { refreshSyncLock, releaseSyncLock } from '@/lib/security/syncLock'
 import { createServiceClient } from '@/lib/supabase/service'
 
 type SyncStatusRow = {
@@ -41,6 +41,15 @@ const NOISY_GMAIL_LABELS = new Set([
 // so the GMAIL_SYNC_MAX_MESSAGES cap doesn't silently drop older mail.
 const RANGE_CHUNK_DAYS = 30
 const RANGE_CHUNK_THRESHOLD_DAYS = 60
+
+function gmailListQueryWithoutRecencyCap() {
+  const { query: defaultSyncQuery } = getGmailSyncListConfig()
+  const stripped = defaultSyncQuery
+    .replace(/\s*newer_than:\d+[dmy]\s*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return stripped || defaultSyncQuery
+}
 
 function getHeaderValue(
   headers: Array<{ name: string; value: string }> | undefined,
@@ -83,13 +92,16 @@ async function updateSyncStatus(
   }
 ) {
   const supabase = createServiceClient()
-  await supabase
+  const { error } = await supabase
     .from('sync_status')
     .update({
       ...patch,
       updated_at: new Date().toISOString(),
     })
     .eq('id', statusRowId)
+  if (error) {
+    console.error('[sync] sync_status update failed', statusRowId, error.message)
+  }
 }
 
 // --- date helpers for monthly chunking -----------------------------------
@@ -145,21 +157,23 @@ function buildDateChunks(
 
 /**
  * Keep only the most recent message per thread within a single fetch
- * batch. ATS systems often emit 3-5 messages per thread (received →
- * reviewed → interview → offer); only the latest carries the freshest
- * lifecycle state, so we skip earlier messages to cut LLM cost.
+ * batch. Gmail `messages.list` is newest-first, so the **lowest index**
+ * per threadId is the freshest lifecycle state (not the last index).
  */
 function dedupeRefsByThread(
   refs: Array<{ id: string; threadId?: string }>
 ): Array<{ id: string; threadId?: string }> {
-  const lastIdxByThread = new Map<string, number>()
+  const newestIdxByThread = new Map<string, number>()
   refs.forEach((ref, idx) => {
     const key = ref.threadId || ref.id
-    lastIdxByThread.set(key, idx)
+    const prev = newestIdxByThread.get(key)
+    if (prev === undefined || idx < prev) {
+      newestIdxByThread.set(key, idx)
+    }
   })
   return refs.filter((ref, idx) => {
     const key = ref.threadId || ref.id
-    return lastIdxByThread.get(key) === idx
+    return newestIdxByThread.get(key) === idx
   })
 }
 
@@ -168,11 +182,22 @@ function getEmailFromIdToken(idTokenEncrypted?: string | null) {
   try {
     const token = decryptSecret(idTokenEncrypted)
     const payload = token.split('.')[1]
-    if (!payload) return null
+    if (!payload) {
+      console.warn('[sync] id_token missing payload section')
+      return null
+    }
     const decoded = payload.replace(/-/g, '+').replace(/_/g, '/')
     const parsed = JSON.parse(Buffer.from(decoded, 'base64').toString('utf8')) as { email?: string }
-    return parsed.email || null
-  } catch {
+    const email = parsed.email || null
+    
+    if (!email) {
+      console.warn('[sync] id_token missing email claim')
+      return null
+    }
+    
+    return email
+  } catch (err) {
+    console.warn('[sync] id_token decrypt/decode failed; outbound detection may be unknown', err)
     return null
   }
 }
@@ -181,6 +206,9 @@ export async function processSyncJob(payload: SyncJobPayload) {
   const supabase = createServiceClient()
   const statusRow = await getLatestSyncStatusRow(payload.userId)
   const syncStartedAt = statusRow?.started_at || new Date().toISOString()
+  const lockRefreshTimer = setInterval(() => {
+    refreshSyncLock(payload.userId).catch(() => {})
+  }, 60_000)
 
   try {
     const allTokens = await getAllValidGmailAccessTokens(payload.userId)
@@ -199,16 +227,27 @@ export async function processSyncJob(payload: SyncJobPayload) {
     }
 
     let processedCount = 0
-    let newJobsFound = 0
     let totalEmails = 0
     let isStopped = false
     let truncated = false
     let oldestProcessedAtMs: number | null = null
     const { maxMessages: gmailMaxMessages } = getGmailSyncListConfig()
+    const idTokenAuditOnce = new Set<string>()
 
     for (const tokenData of allTokens) {
       const { accessToken, idTokenEncrypted, lastHistoryId } = tokenData
       const userEmail = getEmailFromIdToken(idTokenEncrypted)
+      if (!userEmail && idTokenEncrypted && !idTokenAuditOnce.has(tokenData.tokenId)) {
+        idTokenAuditOnce.add(tokenData.tokenId)
+        await recordAuditEvent({
+          userId: payload.userId,
+          eventType: 'sync_gmail_id_token_unavailable',
+          action: 'sync_process',
+          resourceType: 'oauth_tokens',
+          resourceId: tokenData.tokenId,
+          newValues: { note: 'Cannot decode Gmail id_token; outbound detection may be unknown.' },
+        }).catch(() => {})
+      }
       const hasCustomRange = Boolean(payload.fromDate || payload.toDate)
       // Use the same tight ATS/job keyword query for range syncs.
       // The old '-category:{promotions social forums}' fetched every non-promo
@@ -256,13 +295,17 @@ export async function processSyncJob(payload: SyncJobPayload) {
               const historyInvalid =
                 message.includes('(404)') || message.toLowerCase().includes('start historyid')
               if (historyInvalid) {
-                messageRefs = await listGmailMessageRefsForSync(accessToken)
+                messageRefs = await listGmailMessageRefsForSync(accessToken, {
+                  queryOverride: gmailListQueryWithoutRecencyCap(),
+                })
               } else {
                 throw historyError
               }
             }
           } else {
-            messageRefs = await listGmailMessageRefsForSync(accessToken)
+            messageRefs = await listGmailMessageRefsForSync(accessToken, {
+              queryOverride: gmailListQueryWithoutRecencyCap(),
+            })
           }
         } catch (err) {
           console.error(`Failed to list messages for connection ${tokenData.tokenId}:`, err)
@@ -336,6 +379,9 @@ export async function processSyncJob(payload: SyncJobPayload) {
                 const message = await getGmailMessage(accessToken, messageRef.id)
                 const fromAddress = getHeaderValue(message.payload?.headers, 'From')
                 const subject = getHeaderValue(message.payload?.headers, 'Subject')
+                const toAddress = getHeaderValue(message.payload?.headers, 'To') || null
+                const ccAddress = getHeaderValue(message.payload?.headers, 'Cc') || null
+                const bccAddress = getHeaderValue(message.payload?.headers, 'Bcc') || null
                 const body = extractGmailMessageBody(message) || ''
                 const snippet = message.snippet || ''
                 const receivedAtIso = message.internalDate
@@ -352,6 +398,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
                 const gmailThreadId = message.threadId || messageRef.threadId || null
                 const labels = message.labelIds || []
                 const fromIsAts = isAtsSender(fromAddress)
+                const envelope = { toAddress, ccAddress, bccAddress, snippet, receivedAt: receivedAtIso }
 
                 // Skip emails the user sent — cover letters, follow-ups, thank-you notes
                 // all contain job keywords but are outbound, not incoming status updates.
@@ -364,8 +411,9 @@ export async function processSyncJob(payload: SyncJobPayload) {
                     subject,
                     contentHash,
                     reason: 'outbound_email',
+                    ...envelope,
                   })
-                  return { processed: true, createdJob: false }
+                  return { processed: true }
                 }
 
                 // Gmail category skip — Promotions/Social/Forums tabs almost
@@ -379,8 +427,9 @@ export async function processSyncJob(payload: SyncJobPayload) {
                     subject,
                     contentHash,
                     reason: `gmail_category:${labels.filter((l) => NOISY_GMAIL_LABELS.has(l)).join(',')}`,
+                    ...envelope,
                   })
-                  return { processed: true, createdJob: false }
+                  return { processed: true }
                 }
 
                 // Body-size pre-filter — emails >50 KB are nearly always HTML
@@ -395,8 +444,9 @@ export async function processSyncJob(payload: SyncJobPayload) {
                     subject,
                     contentHash,
                     reason: `body_too_large:${body.length}b`,
+                    ...envelope,
                   })
-                  return { processed: true, createdJob: false }
+                  return { processed: true }
                 }
 
                 // Content-hash dedupe (skip reprocessing identical emails unless forced).
@@ -417,8 +467,9 @@ export async function processSyncJob(payload: SyncJobPayload) {
                     subject,
                     contentHash,
                     reason: 'duplicate_content',
+                    ...envelope,
                   })
-                  return { processed: true, createdJob: false }
+                  return { processed: true }
                 }
 
                 // Fast-skip — cheap regex layer with always-pass override.
@@ -432,8 +483,9 @@ export async function processSyncJob(payload: SyncJobPayload) {
                     subject,
                     contentHash,
                     reason: fastSkip.reason || 'fast_skip',
+                    ...envelope,
                   })
-                  return { processed: true, createdJob: false }
+                  return { processed: true }
                 }
 
                 const extractionPayload = {
@@ -447,6 +499,9 @@ export async function processSyncJob(payload: SyncJobPayload) {
                     receivedAtIso,
                     contentHash,
                     emailDirection,
+                    toAddress,
+                    ccAddress,
+                    bccAddress,
                   },
                   ...(payload.extractionMode ? { extractionMode: payload.extractionMode } : {}),
                 }
@@ -456,35 +511,30 @@ export async function processSyncJob(payload: SyncJobPayload) {
                   // Job is queued — extraction happens async in the worker.
                   // We track real counts via processed_emails.review_status='auto_accepted'
                   // queried separately in the sync status API, not via this counter.
-                  return { processed: true, createdJob: false }
+                  return { processed: true }
                 } catch (queueError) {
                   if (process.env.NODE_ENV !== 'production') {
                     console.warn(
                       'Extraction queue unavailable — processing inline (dev mode only)',
                       queueError
                     )
-                    const pipelineResult = await processExtractionJob(extractionPayload)
-                    const createdJob =
-                      pipelineResult?.outcome === 'auto_accepted' &&
-                      pipelineResult.upsertResult?.action === 'created'
-                    return { processed: true, createdJob }
+                    await processExtractionJob(extractionPayload)
+                    return { processed: true }
                   }
                   throw queueError
                 }
               } catch (err) {
                 console.error('Sync message processing failed:', err)
-                return { processed: false, createdJob: false }
+                return { processed: false }
               }
             })
           )
 
           processedCount += results.filter((r) => r.processed).length
-          newJobsFound += results.filter((r) => r.createdJob).length
 
           if (statusRow && (processedCount === totalEmails || processedCount % 5 === 0)) {
             await updateSyncStatus(statusRow.id, {
               processed_count: processedCount,
-              new_jobs_found: newJobsFound,
             })
           }
         }
@@ -515,6 +565,16 @@ export async function processSyncJob(payload: SyncJobPayload) {
       ? new Date(oldestProcessedAtMs).toISOString()
       : null
 
+    // Net-new application rows from this sync (not "emails auto-accepted", which includes updates).
+    const { count: newGmailJobsCount } = await supabase
+      .from('jobs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', payload.userId)
+      .eq('source', 'gmail_sync')
+      .gte('created_at', syncStartedAt)
+
+    const newJobsFound = newGmailJobsCount ?? 0
+
     if (statusRow && !isStopped) {
       await updateSyncStatus(statusRow.id, {
         status: 'completed',
@@ -524,21 +584,6 @@ export async function processSyncJob(payload: SyncJobPayload) {
         truncated,
         oldest_processed_at: oldestProcessedAtIso,
         extraction_mode: effectiveMode,
-      })
-    }
-
-    // Count jobs actually created (async workers may still be running,
-    // so we query the source of truth directly).
-    const { count: actualJobsCreated } = await supabase
-      .from('processed_emails')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', payload.userId)
-      .eq('review_status', 'auto_accepted')
-      .gte('updated_at', syncStartedAt)
-
-    if (statusRow && actualJobsCreated !== null && !isStopped) {
-      await updateSyncStatus(statusRow.id, {
-        new_jobs_found: actualJobsCreated,
       })
     }
 
@@ -578,7 +623,10 @@ export async function processSyncJob(payload: SyncJobPayload) {
 
     throw error
   } finally {
-    await releaseSyncLock(payload.userId)
+    clearInterval(lockRefreshTimer)
+    await releaseSyncLock(payload.userId).catch((err) =>
+      console.error('[sync] releaseSyncLock failed', payload.userId, err)
+    )
   }
 }
 

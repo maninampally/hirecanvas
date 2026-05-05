@@ -9,7 +9,7 @@ type OpenJob = {
   user_id: string
   title: string
   company: string
-  status: 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected'
+  status: 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected' | 'Closed'
   last_contacted_at: string | null
   updated_at: string
 }

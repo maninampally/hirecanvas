@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq'
-import { queueConnection } from '@/lib/queue/connection'
+import { getQueueConnection } from '@/lib/queue/connection'
 import { SYNC_QUEUE_NAME, type SyncJobPayload } from '@/lib/queue/syncQueue'
 
 export function createSyncWorker(
@@ -11,7 +11,7 @@ export function createSyncWorker(
       await processor(job.data)
     },
     {
-      connection: queueConnection,
+      connection: getQueueConnection(),
       concurrency: 2,
     }
   )

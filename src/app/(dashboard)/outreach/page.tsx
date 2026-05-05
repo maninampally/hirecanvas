@@ -220,9 +220,6 @@ export default function OutreachPage() {
           <option value="replied">Replied</option>
           <option value="no_response">No Response</option>
         </Select>
-        <Button variant="outline" onClick={() => void outreachQuery.refetch()} disabled={isLoading}>
-          Filter
-        </Button>
       </div>
 
       {showForm && (
@@ -319,69 +316,95 @@ export default function OutreachPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr className="text-xs font-semibold text-slate-600 uppercase">
-                  <th className="px-6 py-3 text-left">Company</th>
-                  <th className="px-6 py-3 text-left">Contact</th>
-                  <th className="px-6 py-3 text-left">Method</th>
-                  <th className="px-6 py-3 text-left">Status</th>
-                  <th className="px-6 py-3 text-left">Date</th>
-                  <th className="px-6 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {!isLoading && items.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
-                      No outreach records yet.
-                    </td>
+          {isLoading && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr className="text-xs font-semibold text-slate-600 uppercase">
+                    <th className="px-6 py-3 text-left">Company</th>
+                    <th className="px-6 py-3 text-left">Contact</th>
+                    <th className="px-6 py-3 text-left">Method</th>
+                    <th className="px-6 py-3 text-left">Status</th>
+                    <th className="px-6 py-3 text-left">Date</th>
+                    <th className="px-6 py-3 text-right">Action</th>
                   </tr>
-                )}
+                </thead>
+                <tbody>
+                  <TableSkeletonRows rowCount={3} columns={['w-24', 'w-32', 'w-20', 'w-20', 'w-24', 'w-20']} />
+                </tbody>
+              </table>
+            </div>
+          )}
 
-                {isLoading && (
-                  <TableSkeletonRows
-                    rowCount={3}
-                    columns={['w-24', 'w-32', 'w-20', 'w-20', 'w-24', 'w-20']}
-                  />
-                )}
+          {!isLoading && items.length === 0 && (
+            <div className="flex flex-col items-center gap-3 py-14 max-w-sm mx-auto text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-teal-50 text-teal-500">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <p className="font-semibold text-slate-800 text-base">No outreach records yet</p>
+              <p className="text-sm text-slate-500">Track every cold email, LinkedIn message, and phone call to stay organized in your job search.</p>
+              <button
+                type="button"
+                onClick={() => { setShowForm(true) }}
+                className="mt-1 rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-600 transition-colors"
+              >
+                + New Outreach
+              </button>
+            </div>
+          )}
 
-                {items.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4 font-medium text-slate-900">{item.company}</td>
-                    <td className="px-6 py-4 text-slate-700">
-                      {item.contact_name || '-'}
-                      <div className="text-xs text-slate-500">{item.contact_email || ''}</div>
-                    </td>
-                    <td className="px-6 py-4 text-slate-700">{item.method || '-'}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusClasses[item.status]}`}>
-                        {item.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-slate-600 text-sm">{item.outreach_date || '-'}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" className="text-teal-600" onClick={() => handleEdit(item)}>
-                          Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-rose-600"
-                          onClick={() => setConfirmDeleteId(item.id)}
-                          disabled={pendingDeleteId === item.id}
-                        >
-                          {pendingDeleteId === item.id ? 'Deleting...' : 'Delete'}
-                        </Button>
-                      </div>
-                    </td>
+          {!isLoading && items.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr className="text-xs font-semibold text-slate-600 uppercase">
+                    <th className="px-6 py-3 text-left">Company</th>
+                    <th className="px-6 py-3 text-left">Contact</th>
+                    <th className="px-6 py-3 text-left">Method</th>
+                    <th className="px-6 py-3 text-left">Status</th>
+                    <th className="px-6 py-3 text-left">Date</th>
+                    <th className="px-6 py-3 text-right">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {items.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50">
+                      <td className="px-6 py-4 font-medium text-slate-900">{item.company}</td>
+                      <td className="px-6 py-4 text-slate-700">
+                        {item.contact_name || '-'}
+                        <div className="text-xs text-slate-500">{item.contact_email || ''}</div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-700">{item.method || '-'}</td>
+                      <td className="px-6 py-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusClasses[item.status]}`}>
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 text-sm">{item.outreach_date || '-'}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="sm" className="text-teal-600" onClick={() => handleEdit(item)}>
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-rose-600"
+                            onClick={() => setConfirmDeleteId(item.id)}
+                            disabled={pendingDeleteId === item.id}
+                          >
+                            {pendingDeleteId === item.id ? 'Deleting...' : 'Delete'}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

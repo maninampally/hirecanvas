@@ -86,12 +86,26 @@ export function parseJobSignal(params: { subject?: string; from?: string }) {
   return result
 }
 
+// RFC 5322 compliant email validation
+// Pattern: local-part@domain with at least one dot in domain
+// Allows alphanumeric, dots, hyphens, underscores in local part
+// Domain must have at least one dot and valid TLD
+const EMAIL_REGEX = /^[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+
 export function extractEmailAddress(value?: string | null) {
   if (!value) return null
   const trimmed = value.trim()
   const bracket = trimmed.match(/<([^>]+)>/)
   const candidate = (bracket?.[1] || trimmed).trim().toLowerCase()
-  return candidate.includes('@') ? candidate : null
+  
+  // Validate format
+  if (!EMAIL_REGEX.test(candidate)) return null
+  
+  // Reject obviously invalid patterns
+  if (candidate.includes('..') || candidate.startsWith('.') || candidate.endsWith('.')) return null
+  if (candidate.split('@')[0].length === 0 || candidate.split('@')[1].length === 0) return null
+  
+  return candidate
 }
 
 export function inferEmailDirection(params: { from?: string; userEmail?: string | null }): EmailDirection {

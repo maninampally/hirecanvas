@@ -10,11 +10,12 @@ import { StatusDropdown } from '@/components/ui/status-badge'
 import { JobDetailDrawer } from './JobDetailDrawer'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { MdAdd, MdUploadFile, MdMoreHoriz, MdDownload, MdOpenInNew } from 'react-icons/md'
+import { MdAdd, MdUploadFile, MdMoreHoriz, MdOpenInNew, MdDeleteOutline, MdFileDownload } from 'react-icons/md'
+import { exportToCsv } from '@/lib/csvExport'
 
 interface JobsTableProps {
   initialOpenJobId?: string | null
-  /** Opens the real “Add job” form on the page (empty-state button). */
+  /** Opens the real "Add job" form on the page (empty-state button). */
   onRequestAddJob?: () => void
   isExtracting?: boolean
   filters?: {
@@ -28,6 +29,8 @@ interface JobsTableProps {
   }
 }
 
+const STATUSES = ['Wishlist', 'Applied', 'Screening', 'Interview', 'Offer', 'Rejected', 'Closed']
+
 export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, filters }: JobsTableProps) {
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
@@ -39,6 +42,11 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
   const [uploadingJobId, setUploadingJobId] = useState<string | null>(null)
   const resumeInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const actionMenuRef = useRef<HTMLDivElement | null>(null)
+
+  // ── Bulk selection state (OBS-010) ─────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkStatus, setBulkStatus] = useState('')
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false)
 
   const queryKey = useMemo(
     () => [
@@ -70,6 +78,34 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
   }, [jobsQuery.data])
 
   const selectedJob = selectedJobId ? jobs.find((job) => job.id === selectedJobId) || null : null
+
+  // Clear selection when jobs change (deferred to avoid sync setState-in-effect)
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setSelectedIds(new Set())
+    }, 0)
+    return () => clearTimeout(id)
+  }, [jobs])
+
+  const allChecked = jobs.length > 0 && jobs.every((j) => selectedIds.has(j.id))
+  const someChecked = selectedIds.size > 0 && !allChecked
+
+  function toggleAll() {
+    if (allChecked || someChecked) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(jobs.map((j) => j.id)))
+    }
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const statusMutation = useMutation({
     mutationFn: async ({ jobId, newStatus }: { jobId: string; newStatus: string }) =>
@@ -130,8 +166,60 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
 
   async function handleDelete(jobId: string) {
     if (!confirm('Delete this job application?')) return
-
     await deleteMutation.mutateAsync(jobId)
+  }
+
+  // ── Bulk actions (OBS-010) ────────────────────────────────
+  async function handleBulkStatusChange() {
+    if (!bulkStatus || selectedIds.size === 0) return
+    setIsBulkUpdating(true)
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) => updateJobStatus(id, bulkStatus))
+      )
+      await queryClient.invalidateQueries({ queryKey })
+      toast.success(`Updated ${selectedIds.size} application${selectedIds.size > 1 ? 's' : ''} to "${bulkStatus}"`)
+      setSelectedIds(new Set())
+      setBulkStatus('')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Bulk update failed')
+    } finally {
+      setIsBulkUpdating(false)
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return
+    if (!confirm(`Delete ${selectedIds.size} selected application${selectedIds.size > 1 ? 's' : ''}? This cannot be undone.`)) return
+    setIsBulkUpdating(true)
+    try {
+      await Promise.all(Array.from(selectedIds).map((id) => deleteJob(id)))
+      await queryClient.invalidateQueries({ queryKey })
+      toast.success(`Deleted ${selectedIds.size} application${selectedIds.size > 1 ? 's' : ''}`)
+      setSelectedIds(new Set())
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Bulk delete failed')
+    } finally {
+      setIsBulkUpdating(false)
+    }
+  }
+
+  function handleBulkExport() {
+    const selected = jobs.filter((j) => selectedIds.has(j.id))
+    const rows = selected.map((j) => ({
+      Company: j.company,
+      Role: j.title,
+      Status: j.status,
+      'Applied Date': j.applied_date ?? '',
+      Location: j.location ?? '',
+      Salary: j.salary ?? '',
+      Source: j.source ?? '',
+      URL: j.url ?? '',
+      Notes: j.notes ?? '',
+      'Created At': new Date(j.created_at).toLocaleDateString(),
+    }))
+    exportToCsv(`applications-selected-${new Date().toISOString().slice(0, 10)}`, rows)
+    toast.success(`Exported ${rows.length} selected applications`)
   }
 
   async function handleResumeUpload(jobId: string, files: FileList | null) {
@@ -172,18 +260,6 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
     }
   }
 
-  async function handleResumeDownload(jobId: string) {
-    try {
-      const { url, fileName } = await getLatestResumeLink(jobId)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      link.click()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Unable to download resume')
-    }
-  }
-
   function openDrawer(jobId: string) {
     setSelectedJobId(jobId)
     setOpenInEditMode(false)
@@ -215,7 +291,35 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
   }, [openActionMenuJobId])
 
   if (jobsQuery.isLoading) {
-    return <div className="text-slate-600">Loading jobs...</div>
+    return (
+      <Card>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="border-b border-slate-200 bg-slate-50/80">
+              <tr>
+                {['Company', 'Role', 'Status', 'Applied', 'Resume', 'Action'].map((h) => (
+                  <th key={h} className="px-6 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    <div className="h-3 w-16 rounded bg-slate-200 animate-pulse" />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i}>
+                  <td className="px-6 py-4"><div className="h-4 w-28 rounded bg-slate-100 animate-pulse" /></td>
+                  <td className="px-6 py-4"><div className="h-4 w-40 rounded bg-slate-100 animate-pulse" /></td>
+                  <td className="px-6 py-4"><div className="h-6 w-20 rounded-full bg-slate-100 animate-pulse" /></td>
+                  <td className="px-6 py-4"><div className="h-4 w-20 rounded bg-slate-100 animate-pulse" /></td>
+                  <td className="px-6 py-4"><div className="h-8 w-20 rounded bg-slate-100 animate-pulse" /></td>
+                  <td className="px-6 py-4"><div className="h-8 w-8 rounded bg-slate-100 animate-pulse ml-auto" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    )
   }
 
   const queryError = jobsQuery.error instanceof Error ? jobsQuery.error.message : null
@@ -284,7 +388,7 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
                       onRequestAddJob()
                       return
                     }
-                    toast.info('Use “+ Add Application” at the top of this page to create an application.')
+                    toast.info('Use "+ Add Application" at the top of this page to create an application.')
                   }}
                 >
                   Add application
@@ -300,16 +404,80 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
 
   return (
     <>
+      {/* ── Bulk Action Bar (OBS-010) ── */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 animate-slide-down">
+          <span className="text-sm font-semibold text-indigo-700">
+            {selectedIds.size} selected
+          </span>
+          <div className="flex items-center gap-2 ml-auto flex-wrap">
+            <select
+              value={bulkStatus}
+              onChange={(e) => setBulkStatus(e.target.value)}
+              className="h-8 rounded-lg border border-indigo-200 bg-white px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            >
+              <option value="">Change status…</option>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleBulkStatusChange()}
+              disabled={!bulkStatus || isBulkUpdating}
+              className="h-8 px-3 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkExport}
+              disabled={isBulkUpdating}
+              className="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1 transition-colors"
+            >
+              <MdFileDownload className="text-sm" /> Export
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleBulkDelete()}
+              disabled={isBulkUpdating}
+              className="h-8 px-3 rounded-lg border border-rose-200 bg-rose-50 text-xs font-semibold text-rose-600 hover:bg-rose-100 flex items-center gap-1 transition-colors"
+            >
+              <MdDeleteOutline className="text-sm" /> Delete
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="h-8 px-2 rounded-lg text-xs text-slate-400 hover:text-slate-600"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       <Card className="animate-slide-up">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="border-b border-slate-200 bg-slate-50/80">
               <tr>
+                <th className="w-10 px-4 py-3.5">
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    ref={(el) => { if (el) el.indeterminate = someChecked }}
+                    onChange={toggleAll}
+                    aria-label="Select all applications"
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                </th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Applied</th>
-                <th className="px-6 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Resume</th>
+                <th className="min-w-[11rem] px-6 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Resume
+                </th>
                 <th className="px-6 py-3.5 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Action</th>
               </tr>
             </thead>
@@ -317,11 +485,23 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
               {jobs.map((job) => (
                 <tr
                   key={job.id}
-                  className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                  className={`hover:bg-slate-50/80 transition-colors cursor-pointer ${selectedIds.has(job.id) ? 'bg-indigo-50/40' : ''}`}
                   onClick={() => {
                     openDrawer(job.id)
                   }}
                 >
+                  <td
+                    className="w-10 px-4 py-4"
+                    onClick={(e) => { e.stopPropagation(); toggleOne(job.id) }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(job.id)}
+                      onChange={() => toggleOne(job.id)}
+                      aria-label={`Select ${job.company} – ${job.title}`}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </td>
                   <td className="px-6 py-4 text-slate-800 font-medium">{job.company}</td>
                   <td className="px-6 py-4 align-top">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -348,7 +528,7 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
                     {job.applied_date ? new Date(job.applied_date).toLocaleDateString() : '-'}
                   </td>
                   <td
-                    className="px-6 py-4"
+                    className="min-w-[11rem] align-middle px-6 py-4"
                     onClick={(event) => {
                       event.stopPropagation()
                     }}
@@ -378,7 +558,7 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
                         {uploadingJobId === job.id ? 'Uploading...' : 'Upload'}
                       </button>
                     ) : (
-                      <div className="flex items-center gap-2 flex-wrap">
+                      <div className="inline-grid grid-flow-col auto-cols-max items-center gap-2">
                         <button
                           type="button"
                           title="View latest resume"
@@ -387,15 +567,6 @@ export function JobsTable({ initialOpenJobId, onRequestAddJob, isExtracting, fil
                         >
                           <MdOpenInNew className="text-sm" />
                           View
-                        </button>
-                        <button
-                          type="button"
-                          title="Download latest resume"
-                          onClick={() => void handleResumeDownload(job.id)}
-                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 transition-colors"
-                        >
-                          <MdDownload className="text-sm" />
-                          Download
                         </button>
                         <button
                           type="button"

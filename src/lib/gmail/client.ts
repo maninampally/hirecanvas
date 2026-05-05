@@ -68,8 +68,47 @@ function htmlToText(value: string) {
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
+    .replace(/&apos;/gi, "'")
     .replace(/&#39;/gi, "'")
     .replace(/&quot;/gi, '"')
+    .replace(/&iexcl;/gi, '¡')
+    .replace(/&cent;/gi, '¢')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    .replace(
+      /&(copy|reg|trade|euro|pound|yen|deg|plusmn|times|divide|micro|para|sect|middot|laquo|raquo|bdquo|hellip);/gi,
+      (_, name: string) => {
+        const map: Record<string, string> = {
+          copy: '©',
+          reg: '®',
+          trade: '™',
+          euro: '€',
+          pound: '£',
+          yen: '¥',
+          deg: '°',
+          plusmn: '±',
+          times: '×',
+          divide: '÷',
+          micro: 'µ',
+          para: '¶',
+          sect: '§',
+          middot: '·',
+          laquo: '«',
+          raquo: '»',
+          bdquo: '„',
+          hellip: '…',
+        }
+        return map[name.toLowerCase()] || _
+      }
+    )
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n)
+      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : _
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => {
+      const code = parseInt(h, 16)
+      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : _
+    })
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
@@ -167,6 +206,7 @@ const DEFAULT_SYNC_QUERY = [
   '-subject:("job alert" OR "jobs matching" OR "recommended jobs" OR',
     '"people also applied" OR "newsletter" OR "digest" OR',
     '"weekly roundup" OR "jobs near you" OR "new jobs matching")',
+  // Narrowed by default for incremental runs; first full sync / history fallback strips this — see processSyncJob.
   'newer_than:90d',
 ].join(' ')
 
@@ -228,15 +268,17 @@ export function buildSyncQueryWithLocalDateRange(params: {
   const to = parseISODateInput(toDate)
 
   const rangeTokens: string[] = []
+  // `timezoneOffsetMinutes` matches `Date#getTimezoneOffset()` (positive when local is behind UTC).
+  // Local midnight for calendar date D is UTC(Date.UTC(D) + offsetMs), not minus — see sync trigger helpers.
   if (from) {
     const fromUtcMs = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 0, 0, 0)
-      - timezoneOffsetMinutes * 60 * 1000
+      + timezoneOffsetMinutes * 60 * 1000
     rangeTokens.push(`after:${toUnixSeconds(new Date(fromUtcMs))}`)
   }
   if (to) {
     const exclusiveEndUtcMs =
       Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate() + 1, 0, 0, 0)
-      - timezoneOffsetMinutes * 60 * 1000
+      + timezoneOffsetMinutes * 60 * 1000
     rangeTokens.push(`before:${toUnixSeconds(new Date(exclusiveEndUtcMs))}`)
   }
 

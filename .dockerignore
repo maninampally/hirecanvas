@@ -7,5 +7,9 @@ test-results
 e2e
 README.md
 PROJECT_STATE.md
-IMPLEMENTATION_GAPS.md
 *.log
+.env*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

@@ -9,6 +9,7 @@
  * Usage:
  *   npm run reset:rejected -- <your-login-email>
  */
+import { findAuthUserIdByEmail } from '@/lib/supabase/findAuthUserIdByEmail'
 import { createServiceClient } from '@/lib/supabase/service'
 
 async function main() {
@@ -37,7 +38,7 @@ async function main() {
     .eq('user_id', userRow.id)
     .eq('review_status', 'auto_rejected')
 
-  console.log(`Deleting ${before ?? 0} auto_rejected rows for ${userRow.email}...`)
+  console.log(`Deleting ${before ?? 0} auto_rejected rows for ${email.trim()}...`)
 
   const { error } = await supabase
     .from('processed_emails')

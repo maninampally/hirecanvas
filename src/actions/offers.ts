@@ -7,6 +7,8 @@ export type OfferInput = {
   job_id?: string
   title: string
   company: string
+  /** ISO date (YYYY-MM-DD) for calendar / deadlines */
+  deadline?: string | null
   base_salary?: number
   equity_percent?: number
   equity_value_estimate?: number
@@ -71,3 +73,13 @@ export async function upsertOffer(input: OfferInput) {
   return data
 }
 
+export async function deleteOffer(offerId: string) {
+  const { supabase, user } = await getAuthedUser()
+  const { error } = await supabase
+    .from('offers')
+    .delete()
+    .eq('id', offerId)
+    .eq('user_id', user.id)
+  if (error) throw error
+  return { deleted: true }
+}

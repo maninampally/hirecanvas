@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import { defaultJobOptions, queueConnection } from '@/lib/queue/connection'
+import { defaultJobOptions, getQueueConnection } from '@/lib/queue/connection'
 
 export const NUDGE_QUEUE_NAME = 'follow-up-nudges'
 
@@ -13,7 +13,7 @@ let nudgeQueue: Queue<NudgeJobPayload> | null = null
 export function getNudgeQueue() {
   if (!nudgeQueue) {
     nudgeQueue = new Queue<NudgeJobPayload>(NUDGE_QUEUE_NAME, {
-      connection: queueConnection,
+      connection: getQueueConnection(),
       defaultJobOptions,
     })
   }

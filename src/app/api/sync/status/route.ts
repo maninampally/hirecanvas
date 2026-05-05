@@ -39,15 +39,15 @@ export async function GET() {
     return NextResponse.json({ status: data || null })
   }
 
-  const acceptedQuery = supabase
-    .from('processed_emails')
+  // `new_jobs_found` = net-new `jobs` rows from Gmail sync since this run started (PIPE-01).
+  const { count: jobsCreatedCount } = await supabase
+    .from('jobs')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
-    .eq('review_status', 'auto_accepted')
-    .gte('updated_at', data.started_at)
+    .eq('source', 'gmail_sync')
+    .gte('created_at', data.started_at)
 
-  const { count: acceptedCount } = await acceptedQuery
-  const derivedCount = acceptedCount ?? data.new_jobs_found ?? 0
+  const derivedCount = jobsCreatedCount ?? data.new_jobs_found ?? 0
 
   if (derivedCount !== (data.new_jobs_found ?? 0)) {
     await supabase

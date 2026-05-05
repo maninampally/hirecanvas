@@ -30,6 +30,10 @@ export function SyncReportCard({
   const totals = report?.totals || { processed: 0, created: 0, updated: 0, skipped: 0 }
   const confidence = report?.confidenceBuckets || { high: 0, medium: 0, low: 0, unknown: 0 }
 
+  const accepted = totals.created + totals.updated
+  const rejected = totals.skipped
+  const review = 0
+
   return (
     <Card>
       <CardHeader className="space-y-3">
@@ -81,6 +85,27 @@ export function SyncReportCard({
               <p className="text-[11px] text-slate-400 mt-1">{item.emailDirection} | {formatWhen(item.receivedAt)}</p>
             </div>
           ))}
+        </div>
+
+        <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Sync Summary</p>
+          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-md bg-emerald-50 px-2 py-1.5">
+              <p className="font-semibold text-emerald-700">{accepted}</p>
+              <p className="text-emerald-600">Accepted</p>
+            </div>
+            <div className="rounded-md bg-rose-50 px-2 py-1.5">
+              <p className="font-semibold text-rose-700">{rejected}</p>
+              <p className="text-rose-600">Rejected</p>
+            </div>
+            <div className="rounded-md bg-blue-50 px-2 py-1.5">
+              <p className="font-semibold text-blue-700">{review}</p>
+              <p className="text-blue-600">Review</p>
+            </div>
+          </div>
+          <Link href="/sync-logs" className="block text-center text-xs text-teal-600 hover:text-teal-800 font-medium mt-1">
+            View Full Logs →
+          </Link>
         </div>
 
         <Link href="/applications">

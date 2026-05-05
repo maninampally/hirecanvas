@@ -156,7 +156,7 @@ export async function getResumeDownloadUrl(resumeId: string) {
 
   const { data: resume, error: fetchError } = await supabase
     .from('job_resumes')
-    .select('id,file_path,file_name')
+    .select('id,file_path,file_name,mime_type')
     .eq('id', resumeId)
     .eq('user_id', user.id)
     .single()
@@ -169,5 +169,5 @@ export async function getResumeDownloadUrl(resumeId: string) {
 
   if (error || !data?.signedUrl) throw new Error('Unable to generate download link')
 
-  return { url: data.signedUrl, fileName: resume.file_name }
+  return { url: data.signedUrl, fileName: resume.file_name, mimeType: resume.mime_type }
 }

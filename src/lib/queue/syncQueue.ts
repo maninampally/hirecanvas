@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import { defaultJobOptions, queueConnection } from '@/lib/queue/connection'
+import { defaultJobOptions, getQueueConnection } from '@/lib/queue/connection'
 
 export const SYNC_QUEUE_NAME = 'gmail-sync'
 
@@ -23,7 +23,7 @@ let syncQueue: Queue<SyncJobPayload> | null = null
 export function getSyncQueue() {
   if (!syncQueue) {
     syncQueue = new Queue<SyncJobPayload>(SYNC_QUEUE_NAME, {
-      connection: queueConnection,
+      connection: getQueueConnection(),
       defaultJobOptions,
     })
   }

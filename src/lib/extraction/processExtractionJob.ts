@@ -7,6 +7,7 @@ import {
 } from '@/lib/queue/extractionQueue'
 import { recordAuditEvent } from '@/lib/security/audit'
 import { decryptOrReturnPlainText } from '@/lib/security/encryption'
+import { withJobUpsertLock } from '@/lib/security/jobUpsertLock'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getExtractionConfig, type ExtractionConfig } from '@/lib/extraction/config'
 import {
@@ -32,6 +33,7 @@ import {
   upsertJobFromExtraction,
   type VerifiedExtraction,
 } from '@/lib/extraction/upsert'
+import { countJobSignals, isAtsDomain } from '@/lib/extraction/signalBooster'
 
 const MAX_EXTRACTION_TEXT_LENGTH = 2500
 
@@ -54,8 +56,14 @@ function getPiiFlags(text: string) {
   return piiFlags
 }
 
+/**
+ * Maps verifier / extractor confidence to 0–100 stored on `jobs.ai_confidence_score`.
+ * Contract: probabilities in **0–1** are scaled; values already in **(1, 100]** are treated as percents;
+ * values **> 100** clamp (ambiguous model output).
+ */
 function toConfidenceScore(value: number | null | undefined) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  if (value > 1 && value <= 100) return Math.max(0, Math.min(100, Math.round(value)))
   const normalized = value <= 1 ? value * 100 : value
   return Math.max(0, Math.min(100, Math.round(normalized)))
 }
@@ -71,6 +79,7 @@ function estimateCostCents(provider: string, inputTokens: number, outputTokens: 
   const raw = (inputTokens / 1000) * rate.input + (outputTokens / 1000) * rate.output
   // Use Math.ceil so sub-cent costs (e.g. $0.0003 from GPT-4o-mini) register as 1 cent
   // instead of rounding to 0 — which previously disabled the daily budget guard entirely.
+  // Router retries add more `estimateCostCents` calls on the same trace — daily budget is approximate vs invoice.
   return raw > 0 ? Math.max(1, Math.ceil(raw)) : 0
 }
 
@@ -247,6 +256,7 @@ async function runStage3Verifier(params: {
       status: extraction.status,
       status_evidence: extraction.status_evidence,
       confidence: extraction.confidence,
+      interview_date: extraction.interview_date,
     },
   })
 
@@ -342,6 +352,12 @@ export async function runExtractionPipeline(params: {
   const supabase = createServiceClient()
   const { userId, email } = params
   const config = getExtractionConfig(params.mode)
+  const envelope = {
+    toAddress: email.toAddress,
+    ccAddress: email.ccAddress,
+    bccAddress: email.bccAddress,
+    snippet: email.snippet,
+  }
 
   const rawText = cleanEmailText(
     [email.subject, email.snippet, email.bodyText].filter(Boolean).join('\n\n')
@@ -351,6 +367,15 @@ export async function runExtractionPipeline(params: {
 
   const sanitized = sanitizeForAI(rawText)
   const piiFlags = sanitized.piiFlags.length > 0 ? sanitized.piiFlags : getPiiFlags(rawText)
+  // Evidence check uses a larger plain-text window so truncation before the model doesn't false-flag review.
+  const evidenceBodyText = cleanEmailText(
+    [email.subject, email.snippet, email.bodyText].filter(Boolean).join('\n\n')
+  )
+    .slice(0, 50_000)
+    .trim()
+
+  const senderDomain = email.from?.match(/@([\w.-]+)/)?.[1]?.toLowerCase() ?? ''
+  const fromAts = isAtsDomain(senderDomain)
 
   const trace: PipelineTrace = {
     passCount: 0,
@@ -368,8 +393,24 @@ export async function runExtractionPipeline(params: {
     trace
   )
 
-  // Gate 1a — not lifecycle → auto reject
+  // Gate 1a — not lifecycle → auto reject (unless ATS sender or strong signals override)
   if (!stage1.parsed.is_job_lifecycle) {
+    const sigCount = countJobSignals([email.subject, email.snippet].filter(Boolean).join(' '))
+    if (fromAts || sigCount >= 2) {
+      await flagForReview({
+        userId,
+        gmailMessageId: email.gmailMessageId,
+        fromAddress: email.from,
+        subject: email.subject,
+        contentHash: email.contentHash,
+        receivedAt: email.receivedAtIso,
+        reason: `stage1_signal_override:ats=${fromAts},sigs=${sigCount},type=${stage1.parsed.email_type}`,
+        extraction: { stage1: stage1.parsed },
+        ...envelope,
+      })
+      await writeAiUsage(userId, params.userTier, trace)
+      return { outcome: 'needs_review' as const, reason: 'signal_boost_override', trace }
+    }
     await markAutoRejected({
       userId,
       gmailMessageId: email.gmailMessageId,
@@ -378,6 +419,7 @@ export async function runExtractionPipeline(params: {
       contentHash: email.contentHash,
       receivedAt: email.receivedAtIso,
       reason: `stage1_rejected:${stage1.parsed.email_type}`,
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'auto_rejected' as const, reason: 'not_job_lifecycle', trace }
@@ -393,6 +435,7 @@ export async function runExtractionPipeline(params: {
       contentHash: email.contentHash,
       receivedAt: email.receivedAtIso,
       reason: `stage1_type_blocked:${stage1.parsed.email_type}`,
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'auto_rejected' as const, reason: 'email_type_blocked', trace }
@@ -409,14 +452,32 @@ export async function runExtractionPipeline(params: {
         fromAddress: email.from,
         subject: email.subject,
         contentHash: email.contentHash,
-      receivedAt: email.receivedAtIso,
+        receivedAt: email.receivedAtIso,
         reason: `stage1_lifecycle_but_low_confidence:${stage1.parsed.confidence.toFixed(2)}`,
         extraction: { stage1: stage1.parsed },
+        ...envelope,
       })
       await writeAiUsage(userId, params.userTier, trace)
       return { outcome: 'needs_review' as const, reason: 'classifier_lifecycle_low_confidence', trace }
     }
-    // Model said NOT a job email AND very low confidence — safe to reject.
+    // Model said NOT a job email AND very low confidence.
+    // ATS sender or ≥1 strong job signal saves it from auto-rejection → needs_review.
+    const sigCount = countJobSignals([email.subject, email.snippet].filter(Boolean).join(' '))
+    if (fromAts || sigCount >= 1) {
+      await flagForReview({
+        userId,
+        gmailMessageId: email.gmailMessageId,
+        fromAddress: email.from,
+        subject: email.subject,
+        contentHash: email.contentHash,
+        receivedAt: email.receivedAtIso,
+        reason: `stage1_signal_save:ats=${fromAts},sigs=${sigCount},conf=${stage1.parsed.confidence.toFixed(2)}`,
+        extraction: { stage1: stage1.parsed },
+        ...envelope,
+      })
+      await writeAiUsage(userId, params.userTier, trace)
+      return { outcome: 'needs_review' as const, reason: 'signal_save_low_confidence', trace }
+    }
     await markAutoRejected({
       userId,
       gmailMessageId: email.gmailMessageId,
@@ -425,6 +486,7 @@ export async function runExtractionPipeline(params: {
       contentHash: email.contentHash,
       receivedAt: email.receivedAtIso,
       reason: `stage1_low_confidence:${stage1.parsed.confidence.toFixed(2)}`,
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'auto_rejected' as const, reason: 'classifier_confidence_below_borderline', trace }
@@ -440,6 +502,7 @@ export async function runExtractionPipeline(params: {
       receivedAt: email.receivedAtIso,
       reason: `stage1_borderline:${stage1.parsed.confidence.toFixed(2)}`,
       extraction: { stage1: stage1.parsed },
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'needs_review' as const, reason: 'classifier_borderline', trace }
@@ -458,6 +521,7 @@ export async function runExtractionPipeline(params: {
       receivedAt: email.receivedAtIso,
       reason: 'stage2_parse_failure',
       extraction: { stage1: stage1.parsed },
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'needs_review' as const, reason: 'extractor_parse_failure', trace }
@@ -497,6 +561,7 @@ export async function runExtractionPipeline(params: {
         .filter(Boolean)
         .join(','),
       extraction: { stage1: stage1.parsed, stage2: extracted },
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'needs_review' as const, reason: 'extractor_gate_failed', trace }
@@ -512,7 +577,7 @@ export async function runExtractionPipeline(params: {
   })
 
   // Gate 3a — status_evidence must actually appear in body
-  if (extracted.status_evidence && !hasEvidenceInBody(extracted.status_evidence, sanitized.sanitizedText)) {
+  if (extracted.status_evidence && !hasEvidenceInBody(extracted.status_evidence, evidenceBodyText)) {
     await flagForReview({
       userId,
       gmailMessageId: email.gmailMessageId,
@@ -522,6 +587,7 @@ export async function runExtractionPipeline(params: {
       receivedAt: email.receivedAtIso,
       reason: 'status_evidence_not_in_body',
       extraction: { stage1: stage1.parsed, stage2: extracted, stage3 },
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'needs_review' as const, reason: 'status_evidence_not_in_body', trace }
@@ -538,6 +604,7 @@ export async function runExtractionPipeline(params: {
       receivedAt: email.receivedAtIso,
       reason: stage3.rejection_reason || `stage3_rejected:${stage3.final_confidence.toFixed(2)}`,
       extraction: { stage1: stage1.parsed, stage2: extracted, stage3 },
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'needs_review' as const, reason: 'verifier_rejected', trace }
@@ -559,6 +626,7 @@ export async function runExtractionPipeline(params: {
       receivedAt: email.receivedAtIso,
       reason: 'post_correction_missing_required_fields',
       extraction: { stage1: stage1.parsed, stage2: extracted, stage3 },
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'needs_review' as const, reason: 'post_correction_missing', trace }
@@ -575,6 +643,7 @@ export async function runExtractionPipeline(params: {
       receivedAt: email.receivedAtIso,
       reason: `unmapped_status:${finalStatus}`,
       extraction: { stage1: stage1.parsed, stage2: extracted, stage3 },
+      ...envelope,
     })
     await writeAiUsage(userId, params.userTier, trace)
     return { outcome: 'needs_review' as const, reason: 'unmapped_status', trace }
@@ -595,19 +664,21 @@ export async function runExtractionPipeline(params: {
     ai_confidence_score: toConfidenceScore(stage3.final_confidence),
   }
 
-  const upsertResult = await upsertJobFromExtraction({
-    userId,
-    extraction: verified,
-    email: {
-      gmailMessageId: email.gmailMessageId,
-      from: email.from,
-      subject: email.subject,
-      receivedAtIso: email.receivedAtIso,
-      snippet: email.snippet,
-      emailDirection: email.emailDirection,
-    },
-    body: email.bodyText,
-  })
+  const upsertResult = await withJobUpsertLock(userId, async () =>
+    upsertJobFromExtraction({
+      userId,
+      extraction: verified,
+      email: {
+        gmailMessageId: email.gmailMessageId,
+        from: email.from,
+        subject: email.subject,
+        receivedAtIso: email.receivedAtIso,
+        snippet: email.snippet,
+        emailDirection: email.emailDirection,
+      },
+      body: email.bodyText,
+    })
+  )
 
   await markAutoAccepted({
     userId,
@@ -623,19 +694,23 @@ export async function runExtractionPipeline(params: {
       verified,
       upsertResult,
     },
+    ...envelope,
   })
 
   if (upsertResult.statusChanged) {
-    await supabase.from('notifications').insert({
+    const { error: notifError } = await supabase.from('notifications').insert({
       user_id: userId,
       type: 'status_change_detected',
       title: `${verified.company}: ${upsertResult.newStatus}`,
       message: `Auto-detected status ${upsertResult.previousStatus || 'new'} → ${upsertResult.newStatus} for ${verified.company}.`,
-      action_url: `/applications/${upsertResult.jobId}`,
+      action_url: `/applications?jobId=${upsertResult.jobId}`,
     })
+    if (notifError) {
+      throw new Error(`notifications insert failed: ${notifError.message}`)
+    }
   }
 
-  await supabase.from('extraction_audit_log').insert({
+  const { error: auditError } = await supabase.from('extraction_audit_log').insert({
     user_id: userId,
     extraction_type: 'job_email',
     resource_type: 'job_email',
@@ -647,6 +722,9 @@ export async function runExtractionPipeline(params: {
     gdpr_compliant: true,
     ccpa_compliant: true,
   })
+  if (auditError) {
+    throw new Error(`extraction_audit_log insert failed: ${auditError.message}`)
+  }
 
   await writeAiUsage(userId, params.userTier, trace)
 

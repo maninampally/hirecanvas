@@ -45,6 +45,9 @@ export function PipelineFunnel({ data, className }: PipelineFunnelProps) {
                   <p className="text-sm font-semibold text-slate-900 mt-1">
                     {stage.conversionFromPrevious ?? 0}% from previous stage
                   </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {stage.avgDaysInStage != null ? `~${stage.avgDaysInStage.toFixed(1)}d avg` : '—'}
+                  </p>
                 </div>
               ))}
             </div>

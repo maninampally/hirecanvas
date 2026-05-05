@@ -194,9 +194,38 @@ export default function BillingPage() {
               </div>
             </div>
           ) : (
-            <Button disabled={!canManage || isPortalLoading || isLoading} onClick={() => void handleManagePlan()}>
-              {isPortalLoading ? 'Opening...' : 'Manage Plan'}
-            </Button>
+            <div className="space-y-3">
+              <Button disabled={!canManage || isPortalLoading || isLoading} onClick={() => void handleManagePlan()}>
+                {isPortalLoading ? 'Opening...' : 'Manage Plan'}
+              </Button>
+              {!canManage && !isLoading && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <p className="text-sm font-semibold text-amber-800">Billing Portal Unavailable</p>
+                  </div>
+                  <p className="text-xs text-amber-700">
+                    Your account is on the <strong>{currentTier}</strong> plan but no Stripe customer ID was linked.
+                    This usually happens when the payment webhook was not processed (network timeout, duplicate event, or signup race condition).
+                  </p>
+                    <p className="text-xs text-amber-700">
+                      <strong>To resolve:</strong> Email{' '}
+                      <a
+                        href={`mailto:support@hirecanvas.app?subject=Billing%20Portal%20Issue&body=Hi%2C%20my%20account%20is%20on%20the%20${currentTier}%20plan%20but%20I%20cannot%20access%20the%20billing%20portal.%20Please%20check%20my%20Stripe%20customer%20ID%20linkage.`}
+                        className="font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-700"
+                      >
+                        support@hirecanvas.app
+                      </a>{' '}
+                      with your account email and current plan. We will manually link your Stripe customer ID within 24 hours.
+                    </p>
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    Your subscription is still active — this is a display/linkage issue only.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -206,8 +235,29 @@ export default function BillingPage() {
           <CardTitle>Billing History</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading && <p className="text-slate-600">Loading billing history...</p>}
-          {!isLoading && invoices.length === 0 && <p className="text-slate-600">No billing history yet</p>}
+          {isLoading && (
+            <div className="animate-pulse space-y-2 py-2">
+              {[1, 2].map((i) => (
+                <div key={i} className="flex gap-4 py-2">
+                  <div className="h-4 w-28 rounded bg-slate-200" />
+                  <div className="h-4 w-32 rounded bg-slate-200" />
+                  <div className="h-4 w-20 rounded bg-slate-200" />
+                  <div className="ml-auto h-4 w-16 rounded bg-slate-200" />
+                </div>
+              ))}
+            </div>
+          )}
+          {!isLoading && invoices.length === 0 && (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-slate-700">No billing history yet</p>
+              <p className="text-xs text-slate-500">Invoices and payment records will appear here once you&apos;ve made a transaction.</p>
+            </div>
+          )}
 
           {!isLoading && invoices.length > 0 && (
             <div className="overflow-x-auto">

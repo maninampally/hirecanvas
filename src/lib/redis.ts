@@ -1,35 +1,54 @@
 import IORedis from 'ioredis'
 
-function getRedisUrl() {
-  const url = process.env.REDIS_URL
-  if (!url) {
+export function getRedisConnectionOptions() {
+  const redisUrl = process.env.REDIS_URL
+  if (!redisUrl) {
     throw new Error('REDIS_URL is required')
   }
-  return url
-}
 
-export function getRedisConnectionOptions() {
-  const parsed = new URL(getRedisUrl())
+  const parsed = new URL(redisUrl)
 
   return {
-    host: parsed.hostname,
-    port: Number(parsed.port || '6379'),
+    host: parsed.hostname || 'redis',
+    port: parseInt(parsed.port || '6379', 10),
     username: parsed.username || undefined,
     password: parsed.password || undefined,
     tls: parsed.protocol === 'rediss:' ? {} : undefined,
+    retryStrategy: () => null,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: null,
+    connectTimeout: 5000,
   }
 }
 
 let redisSingleton: IORedis | null = null
+let redisConnectionError: Error | null = null
 
-export function getRedisClient() {
+export function getRedisClient(): IORedis {
   if (!redisSingleton) {
-    redisSingleton = new IORedis(getRedisUrl(), {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: true,
-      lazyConnect: true,
-    })
+    try {
+      redisSingleton = new IORedis(getRedisConnectionOptions())
+      
+      redisSingleton.on('error', (err) => {
+        console.warn('[Redis] Connection error:', err.message)
+        redisConnectionError = err
+      })
+      
+      redisSingleton.on('connect', () => {
+        console.log('[Redis] Connected')
+        redisConnectionError = null
+      })
+    } catch (error) {
+      console.error('[Redis] Failed to initialize:', error)
+      redisConnectionError = error instanceof Error ? error : new Error(String(error))
+      // Fallback: return a dummy Redis client that won't crash but won't work
+      redisSingleton = new IORedis({ host: 'localhost', port: 6379, retryStrategy: () => null })
+    }
   }
 
   return redisSingleton
+}
+
+export function isRedisConnected(): boolean {
+  return redisSingleton !== null && redisConnectionError === null
 }
