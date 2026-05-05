@@ -236,7 +236,7 @@ export default function RemindersPage() {
 
       <div className="flex items-center gap-3">
         <Button
-          variant={showCompleted ? 'outline' : 'default'}
+          variant="outline"
           size="sm"
           onClick={() => setShowCompleted((prev) => !prev)}
           disabled={isLoading}
@@ -313,74 +313,85 @@ export default function RemindersPage() {
       <Card>
         <CardContent className="pt-6">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr className="text-xs font-semibold text-slate-600 uppercase">
-                  <th className="px-6 py-3 text-left">Done</th>
-                  <th className="px-6 py-3 text-left">Title</th>
-                  <th className="px-6 py-3 text-left">Type</th>
-                  <th className="px-6 py-3 text-left">Due Date</th>
-                  <th className="px-6 py-3 text-left">Notes</th>
-                  <th className="px-6 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {!isLoading && items.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
-                      No reminders found.
-                    </td>
+            {!isLoading && items.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-16 max-w-xs mx-auto text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-amber-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                </div>
+                <p className="font-semibold text-slate-800 text-base">No reminders yet</p>
+                <p className="text-sm text-slate-500">Stay on top of follow-ups, interview deadlines, and important dates.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowForm(true)}
+                  className="mt-1 rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-teal-600 transition-colors"
+                >
+                  + Add Reminder
+                </button>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr className="text-xs font-semibold text-slate-600 uppercase">
+                    <th className="px-6 py-3 text-left">Done</th>
+                    <th className="px-6 py-3 text-left">Title</th>
+                    <th className="px-6 py-3 text-left">Type</th>
+                    <th className="px-6 py-3 text-left">Due Date</th>
+                    <th className="px-6 py-3 text-left">Notes</th>
+                    <th className="px-6 py-3 text-right">Action</th>
                   </tr>
-                )}
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {isLoading && (
+                    <TableSkeletonRows
+                      rowCount={3}
+                      columns={['w-4', 'w-32', 'w-24', 'w-24', 'w-36', 'w-20']}
+                    />
+                  )}
 
-                {isLoading && (
-                  <TableSkeletonRows
-                    rowCount={3}
-                    columns={['w-4', 'w-32', 'w-24', 'w-24', 'w-36', 'w-20']}
-                  />
-                )}
-
-                {items.map((item) => (
-                  <tr key={item.id} className={isOverdue(item) ? 'bg-rose-50/60' : 'hover:bg-slate-50'}>
-                    <td className="px-6 py-4">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(item.completed_at)}
-                        onChange={(e) => handleToggleComplete(item.id, e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300"
-                        disabled={pendingToggleId === item.id}
-                      />
-                    </td>
-                    <td className="px-6 py-4 font-medium text-slate-900">{item.title}</td>
-                    <td className="px-6 py-4 text-slate-700">{item.type}</td>
-                    <td className="px-6 py-4 text-slate-700">{item.due_date}</td>
-                    <td className="px-6 py-4 text-slate-600 text-sm">{item.notes || '-'}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-teal-600"
-                          onClick={() => handleEdit(item)}
-                          disabled={pendingDeleteId === item.id}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-rose-600"
-                          onClick={() => setConfirmDeleteId(item.id)}
-                          disabled={pendingDeleteId === item.id}
-                        >
-                          {pendingDeleteId === item.id ? 'Deleting...' : 'Delete'}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  {items.map((item) => (
+                    <tr key={item.id} className={isOverdue(item) ? 'bg-rose-50/60' : 'hover:bg-slate-50'}>
+                      <td className="px-6 py-4">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(item.completed_at)}
+                          onChange={(e) => handleToggleComplete(item.id, e.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300"
+                          disabled={pendingToggleId === item.id}
+                        />
+                      </td>
+                      <td className="px-6 py-4 font-medium text-slate-900">{item.title}</td>
+                      <td className="px-6 py-4 text-slate-700">{item.type}</td>
+                      <td className="px-6 py-4 text-slate-700">{item.due_date}</td>
+                      <td className="px-6 py-4 text-slate-600 text-sm">{item.notes || '-'}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-teal-600"
+                            onClick={() => handleEdit(item)}
+                            disabled={pendingDeleteId === item.id}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-rose-600"
+                            onClick={() => setConfirmDeleteId(item.id)}
+                            disabled={pendingDeleteId === item.id}
+                          >
+                            {pendingDeleteId === item.id ? 'Deleting...' : 'Delete'}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </CardContent>
       </Card>

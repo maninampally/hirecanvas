@@ -1,15 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { createJob, importJobsFromCsv } from '@/actions/jobs'
+import { createJob, getJobs } from '@/actions/jobs'
 import { PageHeader } from '@/components/ui/page-header'
 import { JobsTable } from '@/components/jobs/JobsTable'
 import { JobForm } from '@/components/jobs/JobForm'
 import { DateInput } from '@/components/ui/date-input'
 import { JobFormData } from '@/lib/validations/jobs'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { Job } from '@/types/jobs'
+import { exportToCsv } from '@/lib/csvExport'
 
 import { ReviewQueue } from '@/components/jobs/ReviewQueue'
 import { useAuthStore } from '@/stores/authStore'
@@ -29,15 +31,39 @@ export default function JobsPage() {
   const [appliedFrom, setAppliedFrom] = useState('')
   const [appliedTo, setAppliedTo] = useState('')
   const [isCreating, setIsCreating] = useState(false)
-  const [isImporting, setIsImporting] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // Fetch all jobs to calculate status counts
+  const { data: allJobs = [] } = useQuery({
+    queryKey: ['jobs-all-counts'],
+    queryFn: async () => (await getJobs({})) as Job[],
+  })
+
+  // Calculate status counts
+  const statusCounts = useMemo(() => {
+    const counts = {
+      Wishlist: 0,
+      Applied: 0,
+      Screening: 0,
+      Interview: 0,
+      Offer: 0,
+      Rejected: 0,
+      Closed: 0,
+    }
+    allJobs.forEach((job) => {
+      if (job.status && job.status in counts) {
+        counts[job.status as keyof typeof counts]++
+      }
+    })
+    return counts
+  }, [allJobs])
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300)
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  // ... (keep existing handleCreateJob and handleCsvImport)
+  // ... (keep existing handleCreateJob)
 
   async function handleCreateJob(data: JobFormData) {
     try {
@@ -49,52 +75,6 @@ export default function JobsPage() {
       toast.success('Job created')
     } finally {
       setIsCreating(false)
-    }
-  }
-
-  async function handleCsvImport(file: File) {
-    setIsImporting(true)
-    try {
-      const text = await file.text()
-      const lines = text.split(/\r?\n/).filter(Boolean)
-      if (lines.length < 2) throw new Error('CSV must include headers and at least one row.')
-
-      const headers = lines[0].split(',').map((cell) => cell.trim().toLowerCase())
-      const rows = lines.slice(1).map((line) => {
-        const cols = line.split(',').map((cell) => cell.trim().replace(/^"|"$/g, ''))
-        const row: Record<string, string> = {}
-        headers.forEach((header, idx) => {
-          row[header] = cols[idx] || ''
-        })
-        const rawStatus = (row.status || '').toLowerCase()
-        const status: JobFormData['status'] | undefined =
-          rawStatus === 'wishlist' ? 'Wishlist' :
-          rawStatus === 'applied' ? 'Applied' :
-          rawStatus === 'screening' || rawStatus === 'screen' ? 'Screening' :
-          rawStatus === 'interview' ? 'Interview' :
-          rawStatus === 'offer' ? 'Offer' :
-          rawStatus === 'rejected' ? 'Rejected' :
-          undefined
-        return {
-          title: row.title,
-          company: row.company,
-          location: row.location,
-          status,
-          salary: row.salary,
-          url: row.url,
-          notes: row.notes,
-          applied_date: row.applied_date,
-        }
-      })
-
-      const result = await importJobsFromCsv(rows)
-      await queryClient.invalidateQueries({ queryKey: ['jobs'] })
-      setRefreshKey((k) => k + 1)
-      toast.success(`Imported ${result.inserted} jobs${result.skipped ? `, skipped ${result.skipped}` : ''}`)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'CSV import failed')
-    } finally {
-      setIsImporting(false)
     }
   }
 
@@ -115,16 +95,43 @@ export default function JobsPage() {
         }}
       >
         {!showReviewQueue && (
-          <button
-            type="button"
-            onClick={() => {
-              setShowReviewQueue(true)
-              setShowForm(false)
-            }}
-            className="h-9 px-4 rounded-md border border-amber-200 bg-amber-50 text-sm font-medium text-amber-700 hover:bg-amber-100 transition-colors"
-          >
-            Review Pending
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setShowReviewQueue(true)
+                setShowForm(false)
+              }}
+              className="h-9 px-4 rounded-md border border-amber-200 bg-amber-50 text-sm font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+            >
+              Review Pending
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const rows = allJobs.map((j) => ({
+                  Company: j.company,
+                  Role: j.title,
+                  Status: j.status,
+                  'Applied Date': j.applied_date ?? '',
+                  Location: j.location ?? '',
+                  Salary: j.salary ?? '',
+                  Source: j.source ?? '',
+                  URL: j.url ?? '',
+                  Notes: j.notes ?? '',
+                  'Created At': new Date(j.created_at).toLocaleDateString(),
+                }))
+                exportToCsv(`applications-${new Date().toISOString().slice(0, 10)}`, rows)
+                toast.success(`Exported ${rows.length} applications`)
+              }}
+              className="h-9 px-4 rounded-md border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export CSV
+            </button>
+          </>
         )}
       </PageHeader>
 
@@ -139,9 +146,10 @@ export default function JobsPage() {
           )}
 
           <div className="flex flex-wrap gap-2">
-            {(['All', 'Wishlist', 'Applied', 'Screening', 'Interview', 'Offer', 'Rejected'] as const).map((label) => {
+            {(['All', 'Wishlist', 'Applied', 'Screening', 'Interview', 'Offer', 'Rejected', 'Closed'] as const).map((label) => {
               const value = label === 'All' ? '' : label
               const active = value === '' ? statusFilters.length === 0 : statusFilters.includes(value)
+              const count = value === '' ? allJobs.length : (value in statusCounts ? statusCounts[value as keyof typeof statusCounts] : 0)
               return (
                 <button
                   key={label}
@@ -153,13 +161,20 @@ export default function JobsPage() {
                     }
                     setStatusFilters([value])
                   }}
-                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors flex items-center gap-2 ${
                     active
                       ? 'bg-indigo-500 text-white shadow-sm shadow-indigo-500/25'
                       : 'bg-transparent text-slate-500 hover:bg-slate-100'
                   }`}
                 >
                   {label}
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    active
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {count}
+                  </span>
                 </button>
               )
             })}

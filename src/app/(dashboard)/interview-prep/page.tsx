@@ -202,27 +202,29 @@ export default function InterviewPrepPage() {
         description="Practice questions and get AI coaching feedback"
       />
 
-      <Card className="animate-slide-up">
-        <CardContent className="pt-6">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-slate-600">
-                Progress: <span className="font-semibold text-slate-900">{stats.completed}/{stats.total}</span>{' '}
-                completed ({stats.percent}%)
-              </p>
-              <Badge variant={stats.percent >= 75 ? 'emerald' : stats.percent >= 50 ? 'amber' : 'blue'}>
-                Completion {stats.percent}%
-              </Badge>
+      {stats.total > 0 && (
+        <Card className="animate-slide-up">
+          <CardContent className="pt-6">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-slate-600">
+                  Progress: <span className="font-semibold text-slate-900">{stats.completed}/{stats.total}</span>{' '}
+                  completed ({stats.percent}%)
+                </p>
+                <Badge variant={stats.percent === 0 ? 'slate' : stats.percent >= 75 ? 'emerald' : stats.percent >= 50 ? 'amber' : 'blue'}>
+                  Completion {stats.percent}%
+                </Badge>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100">
+                <div
+                  className="h-2 rounded-full bg-teal-500 transition-all"
+                  style={{ width: `${stats.percent}%` }}
+                />
+              </div>
             </div>
-            <div className="h-2 rounded-full bg-slate-100">
-              <div
-                className="h-2 rounded-full bg-teal-500 transition-all"
-                style={{ width: `${stats.percent}%` }}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex flex-col gap-4">
         <Input
@@ -287,9 +289,55 @@ export default function InterviewPrepPage() {
       )}
 
       <div className="grid gap-4">
-        {!loading && filtered.length === 0 && (
+        {!loading && questions.length === 0 && (
           <Card>
-            <CardContent className="pt-6 text-slate-600">No questions match your filters.</CardContent>
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center gap-4 py-10 max-w-md mx-auto text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-50 text-teal-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800 text-lg">Interview Prep is Ready</p>
+                  <p className="text-sm text-slate-500 mt-1">No questions are loaded yet. Your workspace admin can run the sample seed to populate 15 practice questions across 4 categories.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 w-full mt-2">
+                  {[
+                    { label: 'Behavioral', color: 'bg-blue-50 text-blue-700', icon: '🤝' },
+                    { label: 'Technical', color: 'bg-teal-50 text-teal-700', icon: '⚙️' },
+                    { label: 'Situational', color: 'bg-amber-50 text-amber-700', icon: '🧩' },
+                    { label: 'Career', color: 'bg-violet-50 text-violet-700', icon: '🚀' },
+                  ].map((cat) => (
+                    <div key={cat.label} className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium ${cat.color}`}>
+                      <span>{cat.icon}</span> {cat.label}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 mt-2">
+                  Run <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono">supabase/seeds/interview_questions_seed.sql</code> to load sample questions, or{' '}
+                  <a href="mailto:support@hirecanvas.app" className="text-teal-600 font-medium underline underline-offset-2 hover:text-teal-700">contact support</a>.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {!loading && questions.length > 0 && filtered.length === 0 && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <p className="font-semibold text-slate-700">No questions match your filters</p>
+                <p className="text-sm text-slate-400">Try adjusting your search, category, or difficulty filter.</p>
+                <button
+                  type="button"
+                  onClick={() => { setSearch(''); setCategory(''); setDifficulty('') }}
+                  className="mt-2 text-sm font-medium text-teal-600 hover:text-teal-700 underline underline-offset-2"
+                >
+                  Clear all filters
+                </button>
+              </div>
+            </CardContent>
           </Card>
         )}
 

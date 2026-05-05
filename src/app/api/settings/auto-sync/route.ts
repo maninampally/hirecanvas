@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { headers } from 'next/headers'
 import { recordAuditEvent } from '@/lib/security/audit'
 
 export async function POST(request: Request) {

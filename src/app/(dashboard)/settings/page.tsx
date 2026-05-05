@@ -233,20 +233,23 @@ export default function SettingsPage() {
     setLoadingSyncHealth(true)
     setSyncHealthError(null)
     try {
+      const isAdmin = user?.tier === 'admin'
       const [syncRes, provRes] = await Promise.all([
         fetch('/api/sync/health'),
-        fetch('/api/admin/providers'),
+        isAdmin ? fetch('/api/admin/providers') : Promise.resolve(null as Response | null),
       ])
-      
+
       const payload = (await syncRes.json()) as SyncHealthResponse & { error?: string }
       if (!syncRes.ok) {
         throw new Error(payload.error || 'Unable to load ingestion health')
       }
       setSyncHealth(payload)
 
-      if (provRes.ok) {
-        const provData = await provRes.json()
+      if (provRes?.ok) {
+        const provData = (await provRes.json()) as { providers?: AIProviderHealth[] }
         setProviderHealth(provData.providers || [])
+      } else if (!isAdmin) {
+        setProviderHealth([])
       }
 
       const keysRes = await fetch('/api/settings/provider-keys')
@@ -696,8 +699,10 @@ export default function SettingsPage() {
 
     setSavingAutoSync(true)
     try {
+      // The time is already in local format from the input
+      // It will be stored as-is and scheduler will convert to UTC for comparison
       await updateAutoSyncTime(autoSyncTime)
-      toast.success(`Auto-sync scheduled for ${autoSyncTime} UTC daily`)
+      toast.success(`Auto-sync scheduled for ${autoSyncTime} daily (your local time)`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save auto-sync time')
     } finally {
@@ -780,16 +785,28 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium text-slate-700">Avatar URL</label>
-                <Input
-                  value={accountForm.avatar_url}
-                  placeholder="https://..."
-                  onChange={(event) =>
-                    setAccountForm((previous) => ({
-                      ...previous,
-                      avatar_url: event.target.value,
-                    }))
-                  }
-                />
+                <div className="flex items-center gap-3">
+                  <Input
+                    value={accountForm.avatar_url}
+                    placeholder="https://..."
+                    onChange={(event) =>
+                      setAccountForm((previous) => ({
+                        ...previous,
+                        avatar_url: event.target.value,
+                      }))
+                    }
+                  />
+                  {accountForm.avatar_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={accountForm.avatar_url}
+                      alt="Avatar preview"
+                      className="h-10 w-10 rounded-full object-cover border border-slate-200 flex-shrink-0"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                      onLoad={(e) => { (e.currentTarget as HTMLImageElement).style.display = '' }}
+                    />
+                  )}
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium text-slate-700">Plan</label>
@@ -806,6 +823,21 @@ export default function SettingsPage() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-sm font-medium text-slate-900">Referral Program</p>
                   <p className="text-xs text-slate-500 mt-1">Share your code and earn one month credit for qualified referrals.</p>
+                  {referralStatus.referralUrl.includes('localhost') || referralStatus.referralUrl.includes('127.0.0.1') ? (
+                    <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div>
+                        <p className="text-xs font-semibold text-amber-800">Dev Environment URL</p>
+                        <p className="text-xs text-amber-700 mt-0.5">
+                          This link shows <code className="bg-amber-100 px-1 rounded font-mono">localhost</code> because{' '}
+                          <code className="bg-amber-100 px-1 rounded font-mono">NEXT_PUBLIC_APP_URL</code> is not set to your production domain.
+                          Set it in your hosting environment (Vercel, Railway, etc.) before sharing this link.
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="mt-2 flex items-center gap-2">
                     <Input value={referralStatus.referralUrl} readOnly />
                     <Button
@@ -825,11 +857,12 @@ export default function SettingsPage() {
                 </div>
               )}
 
+
               {user?.tier === 'elite' && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
                   <div>
                     <p className="text-sm font-medium text-slate-900">Auto-Sync Schedule</p>
-                    <p className="text-xs text-slate-500 mt-1">Set a time for automatic daily email syncs. Runs in UTC timezone.</p>
+                    <p className="text-xs text-slate-500 mt-1">Set a time for automatic daily email syncs in your local timezone.</p>
                   </div>
                   
                   {loadingAutoSync ? (
@@ -855,7 +888,7 @@ export default function SettingsPage() {
 
                       {autoSyncEnabled && (
                         <div className="space-y-2">
-                          <label className="block text-sm font-medium text-slate-700">Sync Time (24-hour UTC)</label>
+                          <label className="block text-sm font-medium text-slate-700">Sync Time (Your Local Time)</label>
                           <div className="flex items-center gap-2">
                             <Input
                               type="time"
@@ -864,7 +897,7 @@ export default function SettingsPage() {
                               disabled={savingAutoSync}
                               className="w-32"
                             />
-                            <span className="text-xs text-slate-500">UTC</span>
+                            <span className="text-xs text-slate-500">Local</span>
                           </div>
                           <p className="text-xs text-slate-400">
                             Sync will run daily at {autoSyncTime || '09:00'} UTC
