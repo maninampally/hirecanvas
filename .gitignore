@@ -49,6 +49,7 @@ next-env.d.ts
 
 # Local ad-hoc scripts (copy from supabase-query.temp.example.ts)
 scripts/*.temp.*
+!scripts/*.temp.example.*
 scripts/quickCheck.ts
 
 # Dev-only docs (internal audit logs, not for production)
