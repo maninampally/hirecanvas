@@ -1,0 +1,24 @@
+{
+  "name": "HireCanvas",
+  "short_name": "HireCanvas",
+  "description": "Job Search Command Center — track applications, sync Gmail, manage your pipeline",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f0fdfb",
+  "theme_color": "#14b8a6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
