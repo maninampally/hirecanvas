@@ -5,6 +5,7 @@ import { processSyncJob } from '@/lib/sync/processSyncJob'
 import { recordAuditEvent } from '@/lib/security/audit'
 import { enforceRateLimit } from '@/lib/security/rateLimit'
 import { acquireSyncLock, releaseSyncLock } from '@/lib/security/syncLock'
+import { localCalendarYmdFromUtc, startOfLocalDayUtcIso } from '@/lib/sync/localCalendarFromOffset'
 
 type AppTier = 'free' | 'pro' | 'elite' | 'admin'
 
@@ -65,10 +66,19 @@ function getSyncLimitForTier(tier: AppTier) {
     }
   }
 
+  if (tier === 'elite') {
+    return {
+      key: 'sync_hourly_elite',
+      limit: 60,
+      windowInSeconds: 60 * 60,
+      label: 'hour',
+    }
+  }
+
   if (tier === 'admin') {
     return {
-      key: 'sync_hourly',
-      limit: 60,
+      key: 'sync_hourly_admin',
+      limit: 120,
       windowInSeconds: 60 * 60,
       label: 'hour',
     }
@@ -84,8 +94,10 @@ function getSyncLimitForTier(tier: AppTier) {
 
 export async function POST(req: Request) {
   const requestMeta = {
-    ipAddress: null as string | null,
-    userAgent: null as string | null,
+    ipAddress: (req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+                req.headers.get('x-real-ip') ||
+                null) as string | null,
+    userAgent: req.headers.get('user-agent') as string | null,
   }
 
   const supabase = await createClient()
@@ -97,8 +109,6 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-
-  requestMeta.userAgent = null
   let requestBody: SyncTriggerRequestBody = {}
   try {
     requestBody = (await req.json()) as SyncTriggerRequestBody
@@ -228,20 +238,26 @@ export async function POST(req: Request) {
     )
   }
 
+  let syncStatusId: string | null = null
   try {
-    const { error: syncStatusError } = await supabase.from('sync_status').insert({
-      user_id: user.id,
-      status: 'in_progress',
-      total_emails: 0,
-      processed_count: 0,
-      new_jobs_found: 0,
-      started_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    const { data: syncStatusRow, error: syncStatusError } = await supabase
+      .from('sync_status')
+      .insert({
+        user_id: user.id,
+        status: 'in_progress',
+        total_emails: 0,
+        processed_count: 0,
+        new_jobs_found: 0,
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single<{ id: string }>()
 
     if (syncStatusError) {
       throw syncStatusError
     }
+    syncStatusId = syncStatusRow?.id ?? null
 
     // --- Smart auto-date: when no explicit date filter, default to today ---
     let effectiveFromDate = fromDate
@@ -249,16 +265,10 @@ export async function POST(req: Request) {
     const hasUserDateFilter = Boolean(fromDate || toDate)
 
     if (!hasUserDateFilter) {
-      // Compute the user's local "start of today" (midnight) in YYYY-MM-DD
       const now = new Date()
-      const offsetMs = (typeof timezoneOffsetMinutes === 'number' ? timezoneOffsetMinutes : 0) * 60 * 1000
-      const localNow = new Date(now.getTime() - offsetMs)
-      const todayStr = localNow.toISOString().slice(0, 10) // YYYY-MM-DD in user's local tz
-
-      // Check if a sync already completed today
-      const todayStartUtc = new Date(
-        Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(), 0, 0, 0) + offsetMs
-      ).toISOString()
+      const off = typeof timezoneOffsetMinutes === 'number' ? timezoneOffsetMinutes : 0
+      const todayStr = localCalendarYmdFromUtc(now, off)
+      const todayStartUtc = startOfLocalDayUtcIso(todayStr, off)
 
       const { data: lastCompleted } = await supabase
         .from('sync_status')
@@ -271,12 +281,9 @@ export async function POST(req: Request) {
         .maybeSingle<{ completed_at: string | null }>()
 
       if (lastCompleted?.completed_at) {
-        // Sync already happened today → use last sync's completion time as start
         const lastSyncDate = new Date(lastCompleted.completed_at)
-        const lastSyncLocal = new Date(lastSyncDate.getTime() - offsetMs)
-        effectiveFromDate = lastSyncLocal.toISOString().slice(0, 10) // YYYY-MM-DD
+        effectiveFromDate = localCalendarYmdFromUtc(lastSyncDate, off)
       } else {
-        // No sync today → use start of today
         effectiveFromDate = todayStr
       }
     }
@@ -295,16 +302,25 @@ export async function POST(req: Request) {
 
     let jobId: string | number | null = null
     let processedInline = false
-    try {
-      const job = await enqueueSyncJob(payload)
-      jobId = job.id || null
-    } catch (queueError) {
-      if (process.env.NODE_ENV !== 'production') {
-        // Local resilience: process immediately if Redis queue is unavailable.
-        await processSyncJob(payload)
-        processedInline = true
-      } else {
-        throw queueError
+
+    if (!process.env.REDIS_URL?.trim()) {
+      console.warn(
+        '[sync/trigger] REDIS_URL is not set — running sync inline (no BullMQ). Set REDIS_URL + worker for production queues.'
+      )
+      await processSyncJob(payload)
+      processedInline = true
+    } else {
+      try {
+        const job = await enqueueSyncJob(payload)
+        jobId = job.id || null
+      } catch (queueError) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('Sync queue unavailable — running inline (dev mode only)', queueError)
+          await processSyncJob(payload)
+          processedInline = true
+        } else {
+          throw queueError
+        }
       }
     }
 
@@ -343,7 +359,21 @@ export async function POST(req: Request) {
       { status: 200 }
     )
   } catch (error) {
-    await releaseSyncLock(user.id)
+    await releaseSyncLock(user.id).catch((err) =>
+      console.error('[sync trigger] releaseSyncLock failed', err)
+    )
+
+    if (syncStatusId) {
+      await supabase
+        .from('sync_status')
+        .update({
+          status: 'failed',
+          error_message: error instanceof Error ? error.message : 'Unknown error',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', syncStatusId)
+    }
 
     await recordAuditEvent({
       userId: user.id,

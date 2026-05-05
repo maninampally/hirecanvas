@@ -6,8 +6,9 @@ import { decryptOrReturnPlainText } from '@/lib/security/encryption'
 import { jobSchema, JobFormData } from '@/lib/validations/jobs'
 import { sanitizeSearchInput, isMissingRelationError } from '@/lib/utils'
 import { updateStreakOnJobActivity } from '@/actions/dashboard'
+import { isSameCompany, isSameRole, STATUS_RANK } from '@/lib/extraction/upsert'
 
-type JobStatus = 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected'
+type JobStatus = 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected' | 'Closed'
 
 type CSVExportFilters = {
   status?: string
@@ -24,7 +25,7 @@ type CSVImportRow = Partial<JobFormData>
 
 export type JobTimelineEntry = {
   id: string
-  status: 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected'
+  status: 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected' | 'Closed'
   changed_at: string
   notes: string | null
   ai_confidence_score: number | null
@@ -105,13 +106,41 @@ function parseSalaryRange(value?: string | null) {
 function formatSalaryDisplay(row: Record<string, unknown>) {
   const salary = typeof row.salary === 'string' ? row.salary : null
   if (salary) return salary
-  const min = typeof row.salary_min === 'number' ? row.salary_min : null
-  const max = typeof row.salary_max === 'number' ? row.salary_max : null
+  const parsedRange =
+    typeof row.salary_range === 'string'
+      ? parseSalaryRange(row.salary_range)
+      : { salary_min: null as number | null, salary_max: null as number | null }
+  const min = typeof row.salary_min === 'number' ? row.salary_min : parsedRange.salary_min
+  const max = typeof row.salary_max === 'number' ? row.salary_max : parsedRange.salary_max
   const currency = typeof row.currency === 'string' ? row.currency : 'USD'
   if (min !== null && max !== null) return `${currency} ${min.toLocaleString()} - ${max.toLocaleString()}`
   if (max !== null) return `${currency} ${max.toLocaleString()}`
   if (min !== null) return `${currency} ${min.toLocaleString()}`
+  if (typeof row.salary_range === 'string' && row.salary_range.trim()) return row.salary_range
   return undefined
+}
+
+function effectiveSalaryMaxForFilter(row: Record<string, unknown>): number | null {
+  const strSal = typeof row.salary === 'string' ? row.salary : null
+  const fromStr = parseSalaryToNumber(strSal)
+  if (fromStr !== null) return fromStr
+  const parsed =
+    typeof row.salary_range === 'string'
+      ? parseSalaryRange(row.salary_range)
+      : { salary_min: null as number | null, salary_max: null as number | null }
+  const max = typeof row.salary_max === 'number' ? row.salary_max : parsed.salary_max
+  const min = typeof row.salary_min === 'number' ? row.salary_min : parsed.salary_min
+  if (max !== null) return max
+  if (min !== null) return min
+  return null
+}
+
+function reviewTitleMatches(dbTitle: string | null, formTitle: string): boolean {
+  const f = formTitle.trim()
+  const d = (dbTitle || '').trim()
+  if (!f && !d) return true
+  if (!f || !d) return false
+  return isSameRole(dbTitle, formTitle)
 }
 
 /** PostgREST: plain gte/lte on applied_date hides NULLs; include undated jobs so list matches user expectations. */
@@ -137,17 +166,18 @@ async function ensureAppUserExists(user: { id: string; user_metadata?: Record<st
   const fullNameRaw = user.user_metadata?.full_name
   const fullName = typeof fullNameRaw === 'string' ? fullNameRaw : ''
 
-  const { error } = await service.from('app_users').upsert(
-    {
-      id: user.id,
-      full_name: fullName,
-      tier: 'free',
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'id' }
-  )
+  const { data: existing } = await service.from('app_users').select('id').eq('id', user.id).maybeSingle()
+  if (existing) return
+
+  const { error } = await service.from('app_users').insert({
+    id: user.id,
+    full_name: fullName,
+    tier: 'free',
+    updated_at: new Date().toISOString(),
+  })
 
   if (error) {
+    if (error.code === '23505') return
     throw error
   }
 }
@@ -214,7 +244,9 @@ export async function updateJob(id: string, data: Partial<JobFormData>) {
       ...(data.url !== undefined ? { url: data.url || null } : {}),
       ...(data.notes !== undefined ? { notes: data.notes } : {}),
       ...(data.salary !== undefined ? salaryRange : {}),
-      applied_date: data.applied_date ? new Date(data.applied_date) : null,
+      ...(data.applied_date !== undefined
+        ? { applied_date: data.applied_date ? new Date(data.applied_date) : null }
+        : {}),
       updated_at: new Date(),
     })
     .eq('id', id)
@@ -346,9 +378,7 @@ export async function getJobs(
     }))
     if (typeof filters?.salaryMin === 'number' || typeof filters?.salaryMax === 'number') {
       fallbackRows = fallbackRows.filter((row) => {
-        const salary =
-          parseSalaryToNumber(typeof row.salary === 'string' ? row.salary : null) ??
-          (typeof row.salary_max === 'number' ? row.salary_max : null)
+        const salary = effectiveSalaryMaxForFilter(row as Record<string, unknown>)
         if (salary === null) return false
         if (typeof filters?.salaryMin === 'number' && salary < filters.salaryMin) return false
         if (typeof filters?.salaryMax === 'number' && salary > filters.salaryMax) return false
@@ -379,9 +409,7 @@ export async function getJobs(
 
   if (typeof filters?.salaryMin === 'number' || typeof filters?.salaryMax === 'number') {
     rows = rows.filter((row) => {
-      const salary =
-        parseSalaryToNumber(typeof row.salary === 'string' ? row.salary : null) ??
-        (typeof row.salary_max === 'number' ? row.salary_max : null)
+      const salary = effectiveSalaryMaxForFilter(row as Record<string, unknown>)
       if (salary === null) return false
       if (typeof filters?.salaryMin === 'number' && salary < filters.salaryMin) return false
       if (typeof filters?.salaryMax === 'number' && salary > filters.salaryMax) return false
@@ -728,48 +756,57 @@ export async function acceptReviewItem(id: string, jobData: JobFormData) {
   } = await supabase.auth.getUser()
   if (!user) throw new Error('Unauthorized')
 
-  // Check if job exists for this company
   const { data: existingJobs } = await supabase
     .from('jobs')
     .select('id, title, company, status')
     .eq('user_id', user.id)
-    .ilike('company', `%${jobData.company}%`)
 
-  let finalJob = null
+  const companyMatches = (existingJobs || []).filter((j) => isSameCompany(j.company, jobData.company))
 
-  if (existingJobs && existingJobs.length > 0) {
-    // Try to match by title
-    const match = existingJobs.find(j => {
-      const dbTitleWords = new Set(j.title.toLowerCase().split(/\W+/))
-      const newTitleWords = jobData.title.toLowerCase().split(/\W+/)
-      return newTitleWords.some(w => w.length > 3 && dbTitleWords.has(w))
-    }) || existingJobs[0]
+  let match = companyMatches.find((j) => reviewTitleMatches(j.title, jobData.title))
 
-    // Update the existing job's status if it advanced
-    await updateJob(match.id, { 
-      status: jobData.status,
-      applied_date: jobData.applied_date // keep applying updated date if provided
+  if (!match && companyMatches.length === 1) {
+    const sole = companyMatches[0]
+    if (!sole.title?.trim() && !jobData.title?.trim()) {
+      match = sole
+    }
+  }
+
+  let finalJob: Awaited<ReturnType<typeof createJob>> | (typeof companyMatches)[0] | null = null
+
+  if (match) {
+    const currentRank = STATUS_RANK[match.status as keyof typeof STATUS_RANK] ?? 0
+    const newRank = STATUS_RANK[jobData.status as keyof typeof STATUS_RANK] ?? 0
+    const nextStatus = newRank > currentRank ? jobData.status : match.status
+
+    await updateJob(match.id, {
+      status: nextStatus,
+      ...(jobData.applied_date !== undefined ? { applied_date: jobData.applied_date } : {}),
+      ...(jobData.notes !== undefined ? { notes: jobData.notes } : {}),
     })
-    
-    // Add timeline entry
-    await supabase.from('job_status_timeline').insert({
-      job_id: match.id,
-      status: jobData.status,
-      notes: jobData.notes,
-      requires_review: false,
-    })
 
-    finalJob = match
+    if (nextStatus !== match.status || (jobData.notes && jobData.notes.trim())) {
+      const { error: timelineError } = await supabase.from('job_status_timeline').insert({
+        job_id: match.id,
+        status: nextStatus,
+        notes: jobData.notes,
+        requires_review: false,
+      })
+      if (timelineError) throw timelineError
+    }
+
+    finalJob = { ...match, status: nextStatus }
   } else {
-    // create new job
     finalJob = await createJob(jobData)
   }
 
-  await supabase
+  const { error: peError } = await supabase
     .from('processed_emails')
     .update({ review_status: 'auto_accepted', updated_at: new Date().toISOString() })
     .eq('id', id)
     .eq('user_id', user.id)
+
+  if (peError) throw peError
 
   return finalJob
 }

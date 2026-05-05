@@ -203,6 +203,7 @@ export function buildVerifierPrompt(input: {
     status: string | null
     status_evidence: string | null
     confidence: number
+    interview_date?: string | null
   }
 }) {
   return `Verify this job application extraction is accurate.
@@ -217,6 +218,7 @@ Company: ${input.extraction.company}
 Role: ${input.extraction.role}
 Status: ${input.extraction.status}
 Status evidence (quote from email): "${input.extraction.status_evidence}"
+Interview date: ${input.extraction.interview_date || 'null'}
 Extractor confidence: ${input.extraction.confidence}
 
 VERIFY EACH FIELD:
@@ -225,6 +227,7 @@ VERIFY EACH FIELD:
 3. Does the status_evidence quote actually appear in the email body?
 4. Does the status accurately reflect what the email is communicating?
 5. Is this definitely about a job application (not a generic marketing email)?
+6. If an interview_date is extracted, does it match a date/time mentioned in the email? Is it a valid ISO 8601 datetime?
 
 Respond with exactly this JSON:
 {

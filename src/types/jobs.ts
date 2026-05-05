@@ -4,10 +4,11 @@ export interface Job {
   title: string
   company: string
   location?: string
-  status: 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected'
+  status: 'Wishlist' | 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected' | 'Closed'
   salary?: string
   url?: string
   notes?: string
+  source?: string
   applied_date?: string
   is_archived?: boolean
   created_at: string
