@@ -128,23 +128,33 @@ export default function DiscoverPage() {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
-          ))}
+        <div className="flex flex-col items-center justify-center py-20 space-y-4">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-teal-100 border-t-teal-500 rounded-full animate-spin"></div>
+            <MdExplore className="absolute inset-0 m-auto text-2xl text-teal-500 animate-pulse" />
+          </div>
+          <div className="text-center">
+            <h3 className="text-lg font-bold text-slate-800">Connecting to Dice MCP...</h3>
+            <p className="text-sm text-slate-500">Searching live jobs and calculating AI match scores.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full opacity-50 pointer-events-none mt-8">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-64 bg-slate-100 rounded-2xl animate-pulse" />
+            ))}
+          </div>
         </div>
       ) : jobs.length === 0 ? (
-        <Card className="border-dashed py-12 text-center">
-          <CardContent className="space-y-3">
-            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
-              <MdExplore className="text-3xl text-slate-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-slate-900">No suggestions yet</h3>
-            <p className="text-sm text-slate-500 max-w-xs mx-auto">
-              Upload a resume in the ATS Checker to start seeing personalized job matches.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
+          <MdExplore className="text-6xl text-slate-200 mb-4" />
+          <h3 className="text-xl font-bold text-slate-800">No matches found yet</h3>
+          <p className="text-slate-500 mt-2 text-center max-w-md">
+            We couldn't find any jobs matching your profile on Dice right now. Try adding more "Target Roles" or re-uploading your resume.
+          </p>
+          <Button onClick={() => load()} variant="outline" className="mt-6 gap-2">
+            <MdAutoAwesome className="text-teal-500" />
+            Try Again
+          </Button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {jobs
