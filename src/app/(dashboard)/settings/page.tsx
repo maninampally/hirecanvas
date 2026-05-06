@@ -18,6 +18,9 @@ import {
   updateNotificationPreferences,
   getAutoSyncSettings,
   updateAutoSyncTime,
+  requestAccountDeletion,
+  cancelAccountDeletion,
+  updateTargetRoles,
   type ConnectionStatus,
   type GmailConnectionCheckResult,
   type MFAStatus,
@@ -151,11 +154,11 @@ export default function SettingsPage() {
   const [providerHealth, setProviderHealth] = useState<AIProviderHealth[]>([])
   const [loadingSyncHealth, setLoadingSyncHealth] = useState(false)
   const [syncHealthError, setSyncHealthError] = useState<string | null>(null)
-  const [providerKeys, setProviderKeys] = useState<{ gemini: boolean[]; openai: boolean[]; claude: boolean[] } | null>(null)
+  const [providerKeys, setProviderKeys] = useState<{ gemini: boolean[]; openai: boolean[]; claude: boolean[]; ollama: boolean[]; } | null>(null)
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
   const [onboardingBusy, setOnboardingBusy] = useState(false)
   const [referralStatus, setReferralStatus] = useState<ReferralStatus | null>(null)
-  
+
   const [autoSyncTime, setAutoSyncTime] = useState<string | null>(null)
   const [loadingAutoSync, setLoadingAutoSync] = useState(false)
   const [savingAutoSync, setSavingAutoSync] = useState(false)
@@ -389,11 +392,11 @@ export default function SettingsPage() {
       setUser(
         user
           ? {
-              ...user,
-              full_name: result.full_name,
-              email: result.email,
-              avatar_url: result.avatar_url || undefined,
-            }
+            ...user,
+            full_name: result.full_name,
+            email: result.email,
+            avatar_url: result.avatar_url || undefined,
+          }
           : null
       )
 
@@ -655,20 +658,35 @@ export default function SettingsPage() {
   }
 
   async function handleDeleteAccount() {
-    const confirmText = window.prompt('Type DELETE to permanently remove your account and data.')
-    if (!confirmText) return
+    const confirmText = window.prompt('Type DELETE to schedule your account for permanent deletion in 7 days.')
+    if (confirmText !== 'DELETE') return
+    
     try {
-      const response = await fetch('/api/settings/delete-account', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: confirmText }),
-      })
-      const payload = (await response.json()) as { error?: string }
-      if (!response.ok) throw new Error(payload.error || 'Delete failed')
-      toast.success('Account deleted')
-      router.push('/register')
+      setSavingAccount(true)
+      const { scheduled_deletion_at } = await requestAccountDeletion()
+      if (user) {
+        setUser({ ...user, scheduled_deletion_at })
+      }
+      toast.success('Account deletion scheduled. You have 7 days to change your mind.')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to delete account')
+      toast.error(error instanceof Error ? error.message : 'Failed to schedule deletion')
+    } finally {
+      setSavingAccount(false)
+    }
+  }
+
+  async function handleCancelDeletion() {
+    try {
+      setSavingAccount(true)
+      const { scheduled_deletion_at } = await cancelAccountDeletion()
+      if (user) {
+        setUser({ ...user, scheduled_deletion_at })
+      }
+      toast.success('Account deletion request cancelled.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to cancel deletion')
+    } finally {
+      setSavingAccount(false)
     }
   }
 
@@ -730,11 +748,10 @@ export default function SettingsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                activeTab === tab.id
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === tab.id
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
             >
               <Icon className="text-base" />
               {tab.label}
@@ -759,177 +776,261 @@ export default function SettingsPage() {
                 <CardTitle>Account Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 max-w-lg">
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-slate-700">Full Name</label>
-                <Input
-                  value={accountForm.full_name}
-                  onChange={(event) =>
-                    setAccountForm((previous) => ({
-                      ...previous,
-                      full_name: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-slate-700">Email</label>
-                <Input
-                  type="email"
-                  value={accountForm.email}
-                  onChange={(event) =>
-                    setAccountForm((previous) => ({
-                      ...previous,
-                      email: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-slate-700">Avatar URL</label>
-                <div className="flex items-center gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-slate-700">Full Name</label>
                   <Input
-                    value={accountForm.avatar_url}
-                    placeholder="https://..."
+                    value={accountForm.full_name}
                     onChange={(event) =>
                       setAccountForm((previous) => ({
                         ...previous,
-                        avatar_url: event.target.value,
+                        full_name: event.target.value,
                       }))
                     }
                   />
-                  {accountForm.avatar_url && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={accountForm.avatar_url}
-                      alt="Avatar preview"
-                      className="h-10 w-10 rounded-full object-cover border border-slate-200 flex-shrink-0"
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-                      onLoad={(e) => { (e.currentTarget as HTMLImageElement).style.display = '' }}
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-slate-700">Email</label>
+                  <Input
+                    type="email"
+                    value={accountForm.email}
+                    onChange={(event) =>
+                      setAccountForm((previous) => ({
+                        ...previous,
+                        email: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-slate-700">Avatar URL</label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      value={accountForm.avatar_url}
+                      placeholder="https://..."
+                      onChange={(event) =>
+                        setAccountForm((previous) => ({
+                          ...previous,
+                          avatar_url: event.target.value,
+                        }))
+                      }
                     />
-                  )}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-slate-700">Plan</label>
-                <div className="flex items-center gap-3">
-                  <Input value={user?.tier || 'free'} disabled className="w-32" />
-                  <Badge variant="teal">{user?.tier === 'pro' ? 'Pro' : user?.tier === 'elite' ? 'Elite' : 'Free'}</Badge>
-                </div>
-              </div>
-              <Button className="mt-2" onClick={() => void handleAccountSave()} disabled={savingAccount}>
-                {savingAccount ? 'Updating...' : 'Update Account'}
-              </Button>
-
-              {referralStatus && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-sm font-medium text-slate-900">Referral Program</p>
-                  <p className="text-xs text-slate-500 mt-1">Share your code and earn one month credit for qualified referrals.</p>
-                  {referralStatus.referralUrl.includes('localhost') || referralStatus.referralUrl.includes('127.0.0.1') ? (
-                    <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      <div>
-                        <p className="text-xs font-semibold text-amber-800">Dev Environment URL</p>
-                        <p className="text-xs text-amber-700 mt-0.5">
-                          This link shows <code className="bg-amber-100 px-1 rounded font-mono">localhost</code> because{' '}
-                          <code className="bg-amber-100 px-1 rounded font-mono">NEXT_PUBLIC_APP_URL</code> is not set to your production domain.
-                          Set it in your hosting environment (Vercel, Railway, etc.) before sharing this link.
-                        </p>
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="mt-2 flex items-center gap-2">
-                    <Input value={referralStatus.referralUrl} readOnly />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(referralStatus.referralUrl)
-                        toast.success('Referral link copied')
-                      }}
-                    >
-                      Copy
-                    </Button>
+                    {accountForm.avatar_url && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={accountForm.avatar_url}
+                        alt="Avatar preview"
+                        className="h-10 w-10 rounded-full object-cover border border-slate-200 flex-shrink-0"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                        onLoad={(e) => { (e.currentTarget as HTMLImageElement).style.display = '' }}
+                      />
+                    )}
                   </div>
-                  <p className="mt-2 text-xs text-slate-600">
-                    Invites: {referralStatus.totalInvites} • Qualified: {referralStatus.qualifiedInvites} • Rewarded: {referralStatus.rewardedInvites}
-                  </p>
                 </div>
-              )}
-
-
-              {user?.tier === 'elite' && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">Auto-Sync Schedule</p>
-                    <p className="text-xs text-slate-500 mt-1">Set a time for automatic daily email syncs in your local timezone.</p>
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-slate-700">Plan</label>
+                  <div className="flex items-center gap-3">
+                    <Input value={user?.tier || 'free'} disabled className="w-32" />
+                    <Badge variant="teal">{user?.tier === 'pro' ? 'Pro' : user?.tier === 'elite' ? 'Elite' : 'Free'}</Badge>
                   </div>
-                  
-                  {loadingAutoSync ? (
-                    <div className="flex items-center gap-2 text-sm text-slate-400 py-2">
-                      <span className="w-4 h-4 border-2 border-slate-200 border-t-teal-500 rounded-full animate-spin" />
-                      Loading settings...
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={autoSyncEnabled}
-                          onChange={(event) => setAutoSyncEnabled(event.target.checked)}
-                          disabled={savingAutoSync}
-                          id="auto-sync-enable"
-                          className="h-4.5 w-4.5 rounded-md border-slate-300 text-teal-500 transition-colors focus:ring-2 focus:ring-teal-500/40 focus:ring-offset-0 cursor-pointer accent-teal-500"
-                        />
-                        <label htmlFor="auto-sync-enable" className="text-sm text-slate-700 cursor-pointer">
-                          Enable daily auto-sync
-                        </label>
-                      </div>
+                </div>
+                <Button className="mt-2" onClick={() => void handleAccountSave()} disabled={savingAccount}>
+                  {savingAccount ? 'Updating...' : 'Update Account'}
+                </Button>
 
-                      {autoSyncEnabled && (
-                        <div className="space-y-2">
-                          <label className="block text-sm font-medium text-slate-700">Sync Time (Your Local Time)</label>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="time"
-                              value={autoSyncTime || '09:00'}
-                              onChange={(event) => setAutoSyncTime(event.target.value)}
-                              disabled={savingAutoSync}
-                              className="w-32"
-                            />
-                            <span className="text-xs text-slate-500">Local</span>
-                          </div>
-                          <p className="text-xs text-slate-400">
-                            Sync will run daily at {autoSyncTime || '09:00'} UTC
+                {referralStatus && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-sm font-medium text-slate-900">Referral Program</p>
+                    <p className="text-xs text-slate-500 mt-1">Share your code and earn one month credit for qualified referrals.</p>
+                    {referralStatus.referralUrl.includes('localhost') || referralStatus.referralUrl.includes('127.0.0.1') ? (
+                      <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <div>
+                          <p className="text-xs font-semibold text-amber-800">Dev Environment URL</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            This link shows <code className="bg-amber-100 px-1 rounded font-mono">localhost</code> because{' '}
+                            <code className="bg-amber-100 px-1 rounded font-mono">NEXT_PUBLIC_APP_URL</code> is not set to your production domain.
+                            Set it in your hosting environment (Vercel, Railway, etc.) before sharing this link.
                           </p>
                         </div>
-                      )}
-
+                      </div>
+                    ) : null}
+                    <div className="mt-2 flex items-center gap-2">
+                      <Input value={referralStatus.referralUrl} readOnly />
                       <Button
                         size="sm"
-                        onClick={() => void handleSaveAutoSyncTime()}
-                        disabled={savingAutoSync || loadingAutoSync}
-                        className="w-full"
+                        variant="outline"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(referralStatus.referralUrl)
+                          toast.success('Referral link copied')
+                        }}
                       >
-                        {savingAutoSync ? 'Saving...' : 'Save Schedule'}
+                        Copy
                       </Button>
-                    </>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600">
+                      Invites: {referralStatus.totalInvites} • Qualified: {referralStatus.qualifiedInvites} • Rewarded: {referralStatus.rewardedInvites}
+                    </p>
+                  </div>
+                )}
+
+
+                {user?.tier === 'elite' && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">Auto-Sync Schedule</p>
+                      <p className="text-xs text-slate-500 mt-1">Set a time for automatic daily email syncs in your local timezone.</p>
+                    </div>
+
+                    {loadingAutoSync ? (
+                      <div className="flex items-center gap-2 text-sm text-slate-400 py-2">
+                        <span className="w-4 h-4 border-2 border-slate-200 border-t-teal-500 rounded-full animate-spin" />
+                        Loading settings...
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={autoSyncEnabled}
+                            onChange={(event) => setAutoSyncEnabled(event.target.checked)}
+                            disabled={savingAutoSync}
+                            id="auto-sync-enable"
+                            className="h-4.5 w-4.5 rounded-md border-slate-300 text-teal-500 transition-colors focus:ring-2 focus:ring-teal-500/40 focus:ring-offset-0 cursor-pointer accent-teal-500"
+                          />
+                          <label htmlFor="auto-sync-enable" className="text-sm text-slate-700 cursor-pointer">
+                            Enable daily auto-sync
+                          </label>
+                        </div>
+
+                        {autoSyncEnabled && (
+                          <div className="space-y-2">
+                            <label className="block text-sm font-medium text-slate-700">Sync Time (Your Local Time)</label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="time"
+                                value={autoSyncTime || '09:00'}
+                                onChange={(event) => setAutoSyncTime(event.target.value)}
+                                disabled={savingAutoSync}
+                                className="w-32"
+                              />
+                              <span className="text-xs text-slate-500">Local</span>
+                            </div>
+                            <p className="text-xs text-slate-400">
+                              Sync will run daily at {autoSyncTime || '09:00'} UTC
+                            </p>
+                          </div>
+                        )}
+
+                        <Button
+                          size="sm"
+                          onClick={() => void handleSaveAutoSyncTime()}
+                          disabled={savingAutoSync || loadingAutoSync}
+                          className="w-full"
+                        >
+                          {savingAutoSync ? 'Saving...' : 'Save Schedule'}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">Job Preferences</p>
+                      <p className="text-xs text-slate-500 mt-1">Define your target roles for better AI discovery matches.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-2">
+                    <div className="flex flex-wrap gap-2">
+                      {user?.target_roles?.map((role) => (
+                        <Badge key={role} variant="blue" className="px-2 py-1 flex items-center gap-1.5 rounded-lg">
+                          {role}
+                          <button 
+                            onClick={async () => {
+                              const newRoles = user.target_roles?.filter(r => r !== role) || []
+                              await updateTargetRoles(newRoles)
+                              setUser({ ...user, target_roles: newRoles })
+                            }}
+                            className="hover:text-blue-200"
+                          >
+                            ✕
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input 
+                        placeholder="e.g. Senior Frontend Engineer" 
+                        className="h-9 text-sm"
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter') {
+                            const val = e.currentTarget.value.trim()
+                            if (val && user) {
+                              const newRoles = [...(user.target_roles || []), val]
+                              await updateTargetRoles(newRoles)
+                              setUser({ ...user, target_roles: newRoles })
+                              e.currentTarget.value = ''
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-slate-900">Privacy & Data</p>
+                    {user?.scheduled_deletion_at && (
+                      <Badge variant="rose" className="animate-pulse">Deletion Scheduled</Badge>
+                    )}
+                  </div>
+
+                  {user?.scheduled_deletion_at ? (
+                    <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg space-y-3">
+                      <div className="flex items-start gap-2.5 text-rose-800">
+                        <span className="w-5 h-5 rounded-full bg-rose-100 flex items-center justify-center shrink-0 mt-0.5">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                        </span>
+                        <div>
+                          <p className="text-xs font-bold">Your account is scheduled to be deleted.</p>
+                          <p className="text-[11px] mt-0.5 opacity-80">
+                            Permanent removal will occur on <strong>{new Date(user.scheduled_deletion_at).toLocaleDateString()}</strong>. 
+                            During this period, your data remains accessible, but the process will finalize automatically.
+                          </p>
+                        </div>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="default" 
+                        className="w-full bg-rose-600 hover:bg-rose-700 text-white" 
+                        onClick={() => void handleCancelDeletion()}
+                        disabled={savingAccount}
+                      >
+                        Cancel Deletion Request
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => void handleExportData()}>
+                        Export My Data
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-rose-600 border-rose-200 hover:bg-rose-50"
+                        onClick={() => void handleDeleteAccount()}
+                        disabled={savingAccount}
+                      >
+                        Delete My Account
+                      </Button>
+                    </div>
                   )}
                 </div>
-              )}
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-                <p className="text-sm font-medium text-slate-900">Privacy & Data</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void handleExportData()}>
-                    Export My Data
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => void handleDeleteAccount()}>
-                    Delete My Account
-                  </Button>
-                </div>
-              </div>
               </CardContent>
             </Card>
           </div>
@@ -961,8 +1062,8 @@ export default function SettingsPage() {
                       {loadingSecurityData
                         ? 'Loading MFA status...'
                         : mfaStatus.is_enabled
-                        ? 'Enabled. You can disable it anytime.'
-                        : 'Add extra security with authenticator app verification.'}
+                          ? 'Enabled. You can disable it anytime.'
+                          : 'Add extra security with authenticator app verification.'}
                     </p>
                   </div>
                   {mfaStatus.is_enabled ? (
@@ -1179,7 +1280,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/50">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 shadow-sm flex items-center justify-center">
-                        <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                        <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-700">No Gmail account connected</p>
@@ -1197,7 +1298,7 @@ export default function SettingsPage() {
                         <div className="flex items-center gap-3">
                           <div className="relative">
                             <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 shadow-sm flex items-center justify-center">
-                              <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                              <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg>
                             </div>
                             <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${conn.gmail_connected ? 'bg-emerald-500' : 'bg-rose-400'}`} />
                           </div>
@@ -1283,7 +1384,7 @@ export default function SettingsPage() {
                           </div>
                           {data.ok ? (
                             <div className="grid grid-cols-4 gap-1 text-[11px] text-slate-500">
-                              {(['waiting','active','delayed','failed'] as const).map(k => (
+                              {(['waiting', 'active', 'delayed', 'failed'] as const).map(k => (
                                 <div key={k} className="text-center">
                                   <p className={`font-bold ${k === 'failed' && (data[k] ?? 0) > 0 ? 'text-rose-600' : 'text-slate-800'}`}>{data[k] ?? 0}</p>
                                   <p className="capitalize">{k}</p>
@@ -1385,6 +1486,7 @@ export default function SettingsPage() {
                     { label: 'Gemini', keys: providerKeys.gemini, names: ['GEMINI_API_KEY', 'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3', 'GEMINI_API_KEY_4'] },
                     { label: 'OpenAI', keys: providerKeys.openai, names: ['OPENAI_API_KEY', 'OPENAI_API_KEY_4'] },
                     { label: 'Claude', keys: providerKeys.claude, names: ['ANTHROPIC_API_KEY'] },
+                    { label: 'Ollama', keys: providerKeys.ollama, names: ['OLLAMA_API_URL', 'OLLAMA_MODEL'] },
                   ] as const).map(({ label, keys, names }) => (
                     <div key={label} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
                       <p className="text-xs font-semibold text-slate-700 mb-2">{label}</p>
