@@ -581,6 +581,7 @@ export default function SettingsPage() {
     if (activeTab !== 'connections') return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadSyncHealth()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
   function updatePreference<K extends keyof Omit<NotificationPreferences, 'unsubscribe_token'>>(

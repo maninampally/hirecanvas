@@ -29,8 +29,33 @@ export function ATSChecker() {
   const [result, setResult] = useState<ATSResult | null>(null)
 
   const canAnalyze = useMemo(() => {
+<<<<<<< Updated upstream
     return resumeText.trim().length > 0 && jobDescription.trim().length > 0 && !isLoading
   }, [resumeText, jobDescription, isLoading])
+=======
+    return resumeText.trim().length > 0 && jobDescription.trim().length > 0 && !isLoading && !isParsing
+  }, [resumeText, jobDescription, isLoading, isParsing])
+
+  async function loadLibraryResumes() {
+    try {
+      setLoadingLibrary(true)
+      const list = await getUnifiedResumeList()
+      setLibraryResumes(list)
+    } catch {
+      toast.error('Unable to load resume library')
+    } finally {
+      setLoadingLibrary(false)
+    }
+  }
+>>>>>>> Stashed changes
+
+  useEffect(() => {
+    void getUserTier().then(setUserTier)
+    if (mode === 'library') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadLibraryResumes()
+    }
+  }, [mode])
 
   async function handleResumeFile(file: File) {
     setResumeName(file.name)

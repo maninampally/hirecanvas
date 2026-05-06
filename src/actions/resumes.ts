@@ -4,6 +4,24 @@ import { generateCoverLetter } from '@/lib/ai/coverLetter'
 import { runATSChecker } from '@/lib/ai/atsChecker'
 import { createClient } from '@/lib/supabase/server'
 import { getResumeDownloadUrl as getJobResumeSignedUrl } from '@/actions/resumeUpload'
+<<<<<<< Updated upstream
+=======
+import { extractTextFromBuffer } from '@/lib/resumes/parser'
+
+export async function getUserTier(): Promise<'free' | 'pro' | 'elite' | 'admin'> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return 'free'
+
+  const { data: appUser } = await supabase
+    .from('app_users')
+    .select('tier')
+    .eq('id', user.id)
+    .single<{ tier: 'free' | 'pro' | 'elite' | 'admin' | null }>()
+
+  return appUser?.tier || 'free'
+}
+>>>>>>> Stashed changes
 
 export type ResumeItem = {
   id: string

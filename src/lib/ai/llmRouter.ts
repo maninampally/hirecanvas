@@ -8,8 +8,13 @@ import { runGemini } from '@/lib/ai/gemini'
 export type AIProvider = 'gemini' | 'claude' | 'openai'
 export type RoutedProvider = AIProvider | 'regex_fallback'
 
+<<<<<<< Updated upstream
 const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'openai', 'claude'] // cheapest → most expensive
 const COOLDOWN_MS = 25 * 1000 // 25 seconds — Gemini rate limits reset in ~20s
+=======
+const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'openai', 'claude', 'ollama']
+const COOLDOWN_MS = 25 * 1000
+>>>>>>> Stashed changes
 
 export type LLMRouterInput = {
   prompt: string
@@ -59,10 +64,27 @@ function getHealthKey(provider: AIProvider) {
   return `ai:provider:health:${provider}`
 }
 
+<<<<<<< Updated upstream
 function getProviderOrder(preferredProvider?: AIProvider, strictPreferredProvider?: boolean) {
   if (preferredProvider && strictPreferredProvider) return [preferredProvider]
   if (!preferredProvider) return PROVIDER_CHAIN
   return [preferredProvider, ...PROVIDER_CHAIN.filter((provider) => provider !== preferredProvider)]
+=======
+function isProviderConfigured(provider: AIProvider): boolean {
+  if (provider === 'ollama') return true // Always accessible as a target
+  if (provider === 'gemini') return !!process.env.GEMINI_API_KEY
+  if (provider === 'openai') return !!process.env.OPENAI_API_KEY
+  if (provider === 'claude') return !!process.env.ANTHROPIC_API_KEY
+  return false
+}
+
+function getProviderOrder(preferredProvider?: AIProvider) {
+  if (preferredProvider && isProviderConfigured(preferredProvider)) {
+    return [preferredProvider, ...PROVIDER_CHAIN.filter((p) => p !== preferredProvider)]
+  }
+  
+  return PROVIDER_CHAIN
+>>>>>>> Stashed changes
 }
 
 function parseEpoch(rawValue: string | undefined) {
@@ -171,7 +193,22 @@ async function runProvider(provider: AIProvider, request: ProviderRequest) {
 }
 
 export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouterResult> {
+<<<<<<< Updated upstream
   const providerOrder = getProviderOrder(input.preferredProvider, input.strictPreferredProvider)
+=======
+  const providerOrder = getProviderOrder(input.preferredProvider)
+  
+  // SPECIAL RULE: For resume tasks, try Ollama first to avoid costs.
+  // For other tasks, skip Ollama and only use paid providers (they fall back to regex if all fail).
+  let chain: AIProvider[]
+  if (input.task === 'resume_analysis' || input.task === 'resume_tailoring') {
+    chain = providerOrder.filter(p => p === 'ollama')
+  } else {
+    chain = providerOrder.filter(p => p !== 'ollama')
+  }
+
+  const finalOrder = chain.length > 0 ? chain : providerOrder
+>>>>>>> Stashed changes
   const failedProviders: AIProvider[] = []
 
   for (const provider of providerOrder) {
@@ -207,6 +244,7 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
       }
     } catch (error) {
       failedProviders.push(provider)
+<<<<<<< Updated upstream
 
       if (error instanceof ProviderError) {
         const failures = health.failures + 1
@@ -221,6 +259,15 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
           lastError: error instanceof Error ? error.message : 'unknown_error',
         })
       }
+=======
+      const failures = health.failures + 1
+      const quotaError = error instanceof ProviderError && (error as ProviderError & { quotaError?: boolean }).quotaError
+      await writeProviderHealth(provider, {
+        failures,
+        lastError: error instanceof Error ? error.message : 'unknown_error',
+        cooldownUntil: quotaError ? Date.now() + COOLDOWN_MS : health.cooldownUntil,
+      })
+>>>>>>> Stashed changes
     }
   }
 
