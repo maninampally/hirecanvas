@@ -257,6 +257,10 @@ export async function uploadResume(formData: FormData) {
 
   const shouldDefault = (count || 0) === 0
 
+  // Extract text for caching
+  const buffer = Buffer.from(await file.arrayBuffer())
+  const extractedText = await extractTextFromBuffer(buffer, file.type)
+
   const { data: inserted, error: insertError } = await supabase
     .from('resumes')
     .insert({
@@ -267,6 +271,7 @@ export async function uploadResume(formData: FormData) {
       file_type: file.type,
       version: nextVersion,
       is_default: shouldDefault,
+      content: extractedText,
       uploaded_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })

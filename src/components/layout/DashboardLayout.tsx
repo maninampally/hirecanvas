@@ -35,6 +35,7 @@ import {
   MdMoreHoriz,
   MdCalendarMonth,
   MdBusiness,
+  MdExplore,
 } from 'react-icons/md'
 
 function getNavigationSections(tier?: string) {
@@ -51,6 +52,7 @@ function getNavigationSections(tier?: string) {
       title: 'OVERVIEW',
       items: [
         { label: 'Dashboard', href: '/dashboard', icon: MdDashboard },
+        { label: 'Discover', href: '/discover', icon: MdExplore },
         { label: 'Applications', href: '/applications', icon: MdWork },
       ],
     },

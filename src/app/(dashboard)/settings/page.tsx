@@ -20,6 +20,7 @@ import {
   updateAutoSyncTime,
   requestAccountDeletion,
   cancelAccountDeletion,
+  updateTargetRoles,
   type ConnectionStatus,
   type GmailConnectionCheckResult,
   type MFAStatus,
@@ -933,6 +934,52 @@ export default function SettingsPage() {
                     )}
                   </div>
                 )}
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">Job Preferences</p>
+                      <p className="text-xs text-slate-500 mt-1">Define your target roles for better AI discovery matches.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-2">
+                    <div className="flex flex-wrap gap-2">
+                      {user?.target_roles?.map((role) => (
+                        <Badge key={role} variant="blue" className="px-2 py-1 flex items-center gap-1.5 rounded-lg">
+                          {role}
+                          <button 
+                            onClick={async () => {
+                              const newRoles = user.target_roles?.filter(r => r !== role) || []
+                              await updateTargetRoles(newRoles)
+                              setUser({ ...user, target_roles: newRoles })
+                            }}
+                            className="hover:text-blue-200"
+                          >
+                            ✕
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input 
+                        placeholder="e.g. Senior Frontend Engineer" 
+                        className="h-9 text-sm"
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter') {
+                            const val = e.currentTarget.value.trim()
+                            if (val && user) {
+                              const newRoles = [...(user.target_roles || []), val]
+                              await updateTargetRoles(newRoles)
+                              setUser({ ...user, target_roles: newRoles })
+                              e.currentTarget.value = ''
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
                   <div className="flex items-center justify-between">
