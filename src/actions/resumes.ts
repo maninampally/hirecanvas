@@ -1,9 +1,26 @@
 'use server'
 
+import '@/lib/polyfills'
 import { generateCoverLetter } from '@/lib/ai/coverLetter'
 import { runATSChecker } from '@/lib/ai/atsChecker'
+import { tailorResume } from '@/lib/ai/resumeTailor'
 import { createClient } from '@/lib/supabase/server'
 import { getResumeDownloadUrl as getJobResumeSignedUrl } from '@/actions/resumeUpload'
+import { extractTextFromBuffer } from '@/lib/resumes/parser'
+
+export async function getUserTier(): Promise<'free' | 'pro' | 'elite' | 'admin'> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return 'free'
+
+  const { data: appUser } = await supabase
+    .from('app_users')
+    .select('tier')
+    .eq('id', user.id)
+    .single()
+
+  return (appUser?.tier as any) || 'free'
+}
 
 export type ResumeItem = {
   id: string
@@ -459,6 +476,110 @@ export async function generateATSCheck(payload: {
     feature: 'resume_analysis',
     tokens_used: Math.max(100, Math.ceil((resumeText.length + jobDescription.length) / 4)),
     cost_cents: 2,
+    status: 'completed',
+  })
+
+  return result
+}
+
+export async function parseResumeFile(formData: FormData): Promise<{ text: string; fileName: string }> {
+  const file = formData.get('file') as File | null
+  if (!file) throw new Error('No file provided')
+
+  const buffer = Buffer.from(await file.arrayBuffer())
+  const text = await extractTextFromBuffer(buffer, file.type)
+
+  return {
+    text: text.trim(),
+    fileName: file.name,
+  }
+}
+
+export async function parseExistingResume(params: {
+  kind: 'library' | 'job'
+  id: string
+}): Promise<{ text: string; fileName: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Unauthorized')
+
+  let storagePath: string
+  let fileName: string
+  let mimeType: string
+
+  if (params.kind === 'library') {
+    const { data: resume, error } = await supabase
+      .from('resumes')
+      .select('name, storage_path, file_type')
+      .eq('id', params.id)
+      .eq('user_id', user.id)
+      .single()
+
+    if (error || !resume) throw new Error('Resume not found')
+    storagePath = resume.storage_path
+    fileName = resume.name
+    mimeType = resume.file_type || 'application/octet-stream'
+  } else {
+    const { data: resume, error } = await supabase
+      .from('job_resumes')
+      .select('file_name, file_path, mime_type')
+      .eq('id', params.id)
+      .eq('user_id', user.id)
+      .single()
+
+    if (error || !resume) throw new Error('Resume not found')
+    storagePath = resume.file_path
+    fileName = resume.file_name
+    mimeType = resume.mime_type
+  }
+
+  const { data, error: downloadError } = await supabase.storage.from('resumes').download(storagePath)
+  if (downloadError || !data) throw new Error('Failed to download resume from storage')
+
+  const buffer = Buffer.from(await data.arrayBuffer())
+  const text = await extractTextFromBuffer(buffer, mimeType)
+
+  return {
+    text: text.trim(),
+    fileName,
+  }
+}
+
+export async function generateTailoredResumeAction(payload: {
+  resumeText: string
+  jobDescription: string
+}) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error('Unauthorized')
+
+  // Check if user is elite or admin for this premium feature
+  const { data: appUser } = await supabase
+    .from('app_users')
+    .select('tier')
+    .eq('id', user.id)
+    .single<{ tier: string }>()
+
+  if (!appUser || (appUser.tier !== 'elite' && appUser.tier !== 'admin' && appUser.tier !== 'pro')) {
+    throw new Error('Resume tailoring is available on Pro and Elite plans')
+  }
+
+  const result = await tailorResume({
+    resumeText: payload.resumeText,
+    jobDescription: payload.jobDescription,
+  })
+
+  await supabase.from('ai_usage').insert({
+    user_id: user.id,
+    feature: 'resume_tailoring',
+    tokens_used: Math.max(500, Math.ceil((payload.resumeText.length + payload.jobDescription.length) / 4)),
+    cost_cents: 5,
     status: 'completed',
   })
 

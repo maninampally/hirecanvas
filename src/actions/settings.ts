@@ -432,6 +432,57 @@ export async function getConnectionStatus(): Promise<ConnectionStatus[]> {
   })
 }
 
+export async function requestAccountDeletion() {
+  const { supabase, user } = await getAuthenticatedUser()
+  const deletionDate = new Date()
+  deletionDate.setDate(deletionDate.getDate() + 7)
+
+  const { error } = await supabase
+    .from('app_users')
+    .update({ 
+      scheduled_deletion_at: deletionDate.toISOString(),
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', user.id)
+
+  if (error) throw error
+
+  await recordAuditEvent({
+    userId: user.id,
+    eventType: 'account_deletion_requested',
+    action: 'schedule',
+    resourceType: 'app_users',
+    resourceId: user.id,
+    newValues: { scheduled_deletion_at: deletionDate.toISOString() },
+  })
+
+  return { scheduled_deletion_at: deletionDate.toISOString() }
+}
+
+export async function cancelAccountDeletion() {
+  const { supabase, user } = await getAuthenticatedUser()
+
+  const { error } = await supabase
+    .from('app_users')
+    .update({ 
+      scheduled_deletion_at: null,
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', user.id)
+
+  if (error) throw error
+
+  await recordAuditEvent({
+    userId: user.id,
+    eventType: 'account_deletion_cancelled',
+    action: 'cancel',
+    resourceType: 'app_users',
+    resourceId: user.id,
+  })
+
+  return { scheduled_deletion_at: null }
+}
+
 export async function disconnectGmail(tokenId: string) {
   const { supabase, user } = await getAuthenticatedUser()
 

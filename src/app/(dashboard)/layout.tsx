@@ -50,12 +50,17 @@ export default function DashboardRootLayout({
       try {
         const { data: appUser, error: appUserError } = await supabase
           .from('app_users')
-          .select('tier,onboarding_completed')
+          .select('tier,onboarding_completed,scheduled_deletion_at')
           .eq('id', authUser.id)
-          .maybeSingle<{ tier: 'free' | 'pro' | 'elite' | 'admin'; onboarding_completed?: boolean }>()
+          .maybeSingle<{ 
+            tier: 'free' | 'pro' | 'elite' | 'admin'; 
+            onboarding_completed?: boolean;
+            scheduled_deletion_at?: string | null;
+          }>()
 
         let resolvedTier: 'free' | 'pro' | 'elite' | 'admin' = 'free'
         let resolvedOnboardingCompleted = false
+        let resolvedScheduledDeletionAt: string | null = null
 
         if (appUserError && isMissingOnboardingColumnError(appUserError)) {
           const { data: tierOnly, error: tierOnlyError } = await supabase
@@ -69,6 +74,7 @@ export default function DashboardRootLayout({
           if (appUserError) throw appUserError
           resolvedTier = appUser?.tier || 'free'
           resolvedOnboardingCompleted = Boolean(appUser?.onboarding_completed)
+          resolvedScheduledDeletionAt = appUser?.scheduled_deletion_at || null
         }
 
         setUser({
@@ -78,6 +84,7 @@ export default function DashboardRootLayout({
           avatar_url: authUser.user_metadata?.avatar_url,
           tier: resolvedTier,
           onboarding_completed: resolvedOnboardingCompleted,
+          scheduled_deletion_at: resolvedScheduledDeletionAt,
         })
       } catch (error) {
         // Keep the signed-in user in app even if app_users profile fetch fails transiently.

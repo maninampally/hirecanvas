@@ -246,17 +246,15 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                       key={item.href}
                       href={item.href}
                       onClick={() => setMobileSidebarOpen(false)}
-                      className={`group flex items-center gap-3 px-3 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                        isActive
+                      className={`group flex items-center gap-3 px-3 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${isActive
                           ? 'bg-teal-500 text-white shadow-md shadow-teal-500/25'
                           : 'text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-sm'
-                      }`}
+                        }`}
                       title={collapsed ? item.label : undefined}
                     >
                       <Icon
-                        className={`text-lg flex-shrink-0 transition-transform duration-200 group-hover:scale-110 ${
-                          isActive ? 'text-white' : 'text-slate-400 group-hover:text-teal-500'
-                        }`}
+                        className={`text-lg flex-shrink-0 transition-transform duration-200 group-hover:scale-110 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-teal-500'
+                          }`}
                       />
                       {!collapsed && item.label}
                     </Link>
@@ -363,7 +361,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             {/* Sync status */}
             <NotificationCenter />
 
-              <button
+            <button
               type="button"
               onClick={() => setApplicationsPanelCollapsed((prev) => !prev)}
               className="hidden xl:flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-xs font-medium text-slate-600 hover:bg-white"
@@ -418,7 +416,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   <span className="text-xl shrink-0">📬</span>
                   <div>
                     <p className="text-sm font-semibold text-teal-900">Your inbox knows before you do.</p>
-                    <p className="text-xs text-teal-700 mt-0.5">Connect Gmail and HireCanvas will track every rejection, interview invite, and offer — automatically.</p>
+                    <p className="text-xs text-teal-700 mt-0.5">Connect Gmail and HireCanvas will track every interview invite, offer and any updates — automatically.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
