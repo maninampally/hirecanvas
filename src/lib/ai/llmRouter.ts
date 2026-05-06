@@ -4,17 +4,13 @@ import { ProviderError, type ProviderRequest } from '@/lib/ai/gemini'
 import { runOpenAI } from '@/lib/ai/openai'
 import { getRedisClient } from '@/lib/redis'
 import { runGemini } from '@/lib/ai/gemini'
+import { runOllama } from '@/lib/ai/ollama'
 
-export type AIProvider = 'gemini' | 'claude' | 'openai'
+export type AIProvider = 'gemini' | 'claude' | 'openai' | 'ollama'
 export type RoutedProvider = AIProvider | 'regex_fallback'
 
-<<<<<<< Updated upstream
-const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'openai', 'claude'] // cheapest → most expensive
-const COOLDOWN_MS = 25 * 1000 // 25 seconds — Gemini rate limits reset in ~20s
-=======
 const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'openai', 'claude', 'ollama']
 const COOLDOWN_MS = 25 * 1000
->>>>>>> Stashed changes
 
 export type LLMRouterInput = {
   prompt: string
@@ -64,12 +60,6 @@ function getHealthKey(provider: AIProvider) {
   return `ai:provider:health:${provider}`
 }
 
-<<<<<<< Updated upstream
-function getProviderOrder(preferredProvider?: AIProvider, strictPreferredProvider?: boolean) {
-  if (preferredProvider && strictPreferredProvider) return [preferredProvider]
-  if (!preferredProvider) return PROVIDER_CHAIN
-  return [preferredProvider, ...PROVIDER_CHAIN.filter((provider) => provider !== preferredProvider)]
-=======
 function isProviderConfigured(provider: AIProvider): boolean {
   if (provider === 'ollama') return true // Always accessible as a target
   if (provider === 'gemini') return !!process.env.GEMINI_API_KEY
@@ -84,7 +74,6 @@ function getProviderOrder(preferredProvider?: AIProvider) {
   }
   
   return PROVIDER_CHAIN
->>>>>>> Stashed changes
 }
 
 function parseEpoch(rawValue: string | undefined) {
@@ -193,9 +182,6 @@ async function runProvider(provider: AIProvider, request: ProviderRequest) {
 }
 
 export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouterResult> {
-<<<<<<< Updated upstream
-  const providerOrder = getProviderOrder(input.preferredProvider, input.strictPreferredProvider)
-=======
   const providerOrder = getProviderOrder(input.preferredProvider)
   
   // SPECIAL RULE: For resume tasks, try Ollama first to avoid costs.
@@ -208,10 +194,9 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
   }
 
   const finalOrder = chain.length > 0 ? chain : providerOrder
->>>>>>> Stashed changes
   const failedProviders: AIProvider[] = []
 
-  for (const provider of providerOrder) {
+  for (const provider of finalOrder) {
     const health = await getProviderHealth(provider)
     if (health.cooldownUntil > Date.now()) {
       failedProviders.push(provider)
