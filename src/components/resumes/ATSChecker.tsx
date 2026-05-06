@@ -29,10 +29,6 @@ export function ATSChecker() {
   const [result, setResult] = useState<ATSResult | null>(null)
 
   const canAnalyze = useMemo(() => {
-<<<<<<< Updated upstream
-    return resumeText.trim().length > 0 && jobDescription.trim().length > 0 && !isLoading
-  }, [resumeText, jobDescription, isLoading])
-=======
     return resumeText.trim().length > 0 && jobDescription.trim().length > 0 && !isLoading && !isParsing
   }, [resumeText, jobDescription, isLoading, isParsing])
 
@@ -47,7 +43,6 @@ export function ATSChecker() {
       setLoadingLibrary(false)
     }
   }
->>>>>>> Stashed changes
 
   useEffect(() => {
     void getUserTier().then(setUserTier)

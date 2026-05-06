@@ -229,22 +229,6 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
       }
     } catch (error) {
       failedProviders.push(provider)
-<<<<<<< Updated upstream
-
-      if (error instanceof ProviderError) {
-        const failures = health.failures + 1
-        await writeProviderHealth(provider, {
-          failures,
-          lastError: error.message,
-          cooldownUntil: error.quotaError ? Date.now() + COOLDOWN_MS : health.cooldownUntil,
-        })
-      } else {
-        await writeProviderHealth(provider, {
-          failures: health.failures + 1,
-          lastError: error instanceof Error ? error.message : 'unknown_error',
-        })
-      }
-=======
       const failures = health.failures + 1
       const quotaError = error instanceof ProviderError && (error as ProviderError & { quotaError?: boolean }).quotaError
       await writeProviderHealth(provider, {
@@ -252,7 +236,6 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
         lastError: error instanceof Error ? error.message : 'unknown_error',
         cooldownUntil: quotaError ? Date.now() + COOLDOWN_MS : health.cooldownUntil,
       })
->>>>>>> Stashed changes
     }
   }
 

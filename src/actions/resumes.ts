@@ -4,9 +4,8 @@ import { generateCoverLetter } from '@/lib/ai/coverLetter'
 import { runATSChecker } from '@/lib/ai/atsChecker'
 import { createClient } from '@/lib/supabase/server'
 import { getResumeDownloadUrl as getJobResumeSignedUrl } from '@/actions/resumeUpload'
-<<<<<<< Updated upstream
-=======
 import { extractTextFromBuffer } from '@/lib/resumes/parser'
+import { tailorResume } from '@/lib/ai/resumeTailor'
 
 export async function getUserTier(): Promise<'free' | 'pro' | 'elite' | 'admin'> {
   const supabase = await createClient()
@@ -21,7 +20,6 @@ export async function getUserTier(): Promise<'free' | 'pro' | 'elite' | 'admin'>
 
   return appUser?.tier || 'free'
 }
->>>>>>> Stashed changes
 
 export type ResumeItem = {
   id: string

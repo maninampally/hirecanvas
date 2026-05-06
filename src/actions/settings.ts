@@ -133,7 +133,6 @@ async function getAuthenticatedUser() {
   )
 
   if (profileError) {
-<<<<<<< Updated upstream
     if (isMissingColumnError(profileError)) {
       const { error: fallbackError } = await service.from('app_users').upsert(
         {
@@ -147,14 +146,6 @@ async function getAuthenticatedUser() {
       if (fallbackError) throw fallbackError
     } else {
       throw profileError
-=======
-    // If standard client fails (e.g. RLS issues), ONLY then try service client if available
-    try {
-      const service = createServiceClient()
-      await service.from('app_users').upsert(profileData, { onConflict: 'id' })
-    } catch {
-      console.warn('[Settings] Profile upsert failed, but continuing...', profileError.message)
->>>>>>> Stashed changes
     }
   }
 
