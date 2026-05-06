@@ -3,28 +3,78 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
 const DICE_MCP_URL = "https://mcp.dice.com/mcp";
 
-export async function searchDiceJobs(query: string, location: string = "Remote", attempt: number = 1): Promise<any[]> {
-  console.log(`[DiceMCP] Initiating connection to ${DICE_MCP_URL} (Attempt ${attempt}/2)`);
+// Persistent connection state
+let globalClient: Client | null = null;
+let globalTransport: SSEClientTransport | null = null;
+let isConnecting = false;
 
-  const transport = new SSEClientTransport(new URL(DICE_MCP_URL));
-  const client = new Client(
-    { name: "hirecanvas-discovery", version: "1.0.0" },
-    { capabilities: {} }
-  );
+// Simple TTL Cache (10 minutes)
+const cache = new Map<string, { data: any[], expiry: number }>();
+const CACHE_TTL = 10 * 60 * 1000; 
 
-  // Increased to 5 minutes for Dice's sometimes-slow response
-  const connectionTimeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Dice MCP Connection Timeout (5min)")), 300000)
-  );
+async function getDiceClient(): Promise<Client> {
+  if (globalClient) return globalClient;
+
+  // Prevent multiple simultaneous connection attempts
+  if (isConnecting) {
+    while (isConnecting) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (globalClient) return globalClient;
+    }
+  }
+
+  isConnecting = true;
+  console.log(`[DiceMCP] Establishing persistent connection to ${DICE_MCP_URL}...`);
 
   try {
-    console.log(`[DiceMCP] Connecting transport...`);
+    const transport = new SSEClientTransport(new URL(DICE_MCP_URL));
+    const client = new Client(
+      { name: "hirecanvas-discovery", version: "1.0.0" },
+      { capabilities: {} }
+    );
+
+    // Set a timeout for the initial cold-start connection
+    const connectionTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Dice MCP Cold Start Timeout (45s)")), 45000)
+    );
+
     await Promise.race([
       client.connect(transport),
       connectionTimeout
     ]);
 
-    console.log(`[DiceMCP] Connection successful. Calling 'find-jobs' for: ${query}`);
+    console.log("[DiceMCP] Persistent connection established.");
+
+    // Handle disconnections
+    transport.onclose = () => {
+      console.warn("[DiceMCP] Connection closed. Client will reset.");
+      globalClient = null;
+      globalTransport = null;
+    };
+
+    globalClient = client;
+    globalTransport = transport;
+    return client;
+  } catch (err) {
+    console.error("[DiceMCP] Persistent connection failed:", err);
+    throw err;
+  } finally {
+    isConnecting = false;
+  }
+}
+
+export async function searchDiceJobs(query: string, location: string = "Remote"): Promise<any[]> {
+  const cacheKey = `${query.toLowerCase()}-${location.toLowerCase()}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && cached.expiry > Date.now()) {
+    console.log(`[DiceMCP] Cache hit for: ${query}`);
+    return cached.data;
+  }
+
+  try {
+    const client = await getDiceClient();
+    console.log(`[DiceMCP] Calling 'find-jobs' for: ${query}`);
 
     const result = await client.callTool({
       name: "find-jobs",
@@ -44,18 +94,17 @@ export async function searchDiceJobs(query: string, location: string = "Remote",
 
     const data = JSON.parse(textContent.text);
     const jobs = data.jobs || data.jobListings || (Array.isArray(data) ? data : []);
-    console.log(`[DiceMCP] Successfully parsed ${jobs.length} jobs`);
+    
+    // Store in cache
+    cache.set(cacheKey, {
+      data: jobs,
+      expiry: Date.now() + CACHE_TTL
+    });
+
+    console.log(`[DiceMCP] Found ${jobs.length} jobs for: ${query}`);
     return jobs;
   } catch (error) {
-    console.error(`[DiceMCP] Error (Attempt ${attempt}):`, error instanceof Error ? error.message : String(error));
-
-    // Auto-retry once
-    if (attempt < 2) {
-      console.log("[DiceMCP] Retrying in 2 seconds...");
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      return searchDiceJobs(query, location, attempt + 1);
-    }
-
+    console.error(`[DiceMCP] Search failed for ${query}:`, error instanceof Error ? error.message : String(error));
     return [];
   }
 }
