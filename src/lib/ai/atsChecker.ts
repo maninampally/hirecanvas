@@ -143,7 +143,7 @@ export async function runATSChecker(input: ATSCheckerInput): Promise<ATSCheckerR
   ].join('\n')
 
   const routed = await runWithLLMRouter({
-    task: 'general',
+    task: 'resume_analysis',
     prompt,
     preferredProvider: input.preferredProvider,
     temperature: 0,

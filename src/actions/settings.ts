@@ -114,38 +114,33 @@ async function getAuthenticatedUser() {
 
   // Google OAuth users may exist in auth.users before app_users row is created.
   // Ensure profile exists so downstream FK inserts (notification_preferences, etc.) do not fail.
-  const service = createServiceClient()
+  // Try with standard client first (no Service Role required)
   const fullNameRaw = user.user_metadata?.full_name
   const fullName = typeof fullNameRaw === 'string' ? fullNameRaw : ''
   const avatarRaw = user.user_metadata?.avatar_url
   const avatarUrl = typeof avatarRaw === 'string' ? avatarRaw : null
   const referralCode = generateReferralCode(user.id)
 
-  const { error: profileError } = await service.from('app_users').upsert(
-    {
-      id: user.id,
-      full_name: fullName,
-      avatar_url: avatarUrl,
-      referral_code: referralCode,
-      updated_at: new Date().toISOString(),
-    },
+  const profileData = {
+    id: user.id,
+    full_name: fullName,
+    avatar_url: avatarUrl,
+    referral_code: referralCode,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { error: profileError } = await supabase.from('app_users').upsert(
+    profileData,
     { onConflict: 'id' }
   )
 
   if (profileError) {
-    if (isMissingColumnError(profileError)) {
-      const { error: fallbackError } = await service.from('app_users').upsert(
-        {
-          id: user.id,
-          full_name: fullName,
-          avatar_url: avatarUrl,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' }
-      )
-      if (fallbackError) throw fallbackError
-    } else {
-      throw profileError
+    // If standard client fails (e.g. RLS issues), ONLY then try service client if available
+    try {
+      const service = createServiceClient()
+      await service.from('app_users').upsert(profileData, { onConflict: 'id' })
+    } catch (e) {
+      console.warn('[Settings] Profile upsert failed, but continuing...', profileError.message)
     }
   }
 
@@ -430,6 +425,73 @@ export async function getConnectionStatus(): Promise<ConnectionStatus[]> {
       gmail_is_revoked: row.is_revoked || false,
     }
   })
+}
+
+export async function requestAccountDeletion() {
+  const { supabase, user } = await getAuthenticatedUser()
+  const deletionDate = new Date()
+  deletionDate.setDate(deletionDate.getDate() + 7)
+
+  const { error } = await supabase
+    .from('app_users')
+    .update({ 
+      scheduled_deletion_at: deletionDate.toISOString(),
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', user.id)
+
+  if (error) throw error
+
+  await recordAuditEvent({
+    userId: user.id,
+    eventType: 'account_deletion_requested',
+    action: 'schedule',
+    resourceType: 'app_users',
+    resourceId: user.id,
+    newValues: { scheduled_deletion_at: deletionDate.toISOString() },
+  })
+
+  return { scheduled_deletion_at: deletionDate.toISOString() }
+}
+
+export async function cancelAccountDeletion() {
+  const { supabase, user } = await getAuthenticatedUser()
+
+  const { error } = await supabase
+    .from('app_users')
+    .update({ 
+      scheduled_deletion_at: null,
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', user.id)
+
+  if (error) throw error
+
+  await recordAuditEvent({
+    userId: user.id,
+    eventType: 'account_deletion_cancelled',
+    action: 'cancel',
+    resourceType: 'app_users',
+    resourceId: user.id,
+  })
+
+  return { scheduled_deletion_at: null }
+}
+
+export async function updateTargetRoles(roles: string[]) {
+  const { supabase, user } = await getAuthenticatedUser()
+
+  const { error } = await supabase
+    .from('app_users')
+    .update({ 
+      target_roles: roles,
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', user.id)
+
+  if (error) throw error
+
+  return { target_roles: roles }
 }
 
 export async function disconnectGmail(tokenId: string) {

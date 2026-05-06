@@ -25,13 +25,13 @@ export type ProviderResponse = {
 }
 
 export class ProviderError extends Error {
-  provider: 'gemini' | 'claude' | 'openai'
+  provider: 'gemini' | 'claude' | 'openai' | 'ollama'
   statusCode?: number
   retryable: boolean
   quotaError: boolean
 
   constructor(
-    provider: 'gemini' | 'claude' | 'openai',
+    provider: 'gemini' | 'claude' | 'openai' | 'ollama',
     message: string,
     opts?: { statusCode?: number; retryable?: boolean; quotaError?: boolean }
   ) {

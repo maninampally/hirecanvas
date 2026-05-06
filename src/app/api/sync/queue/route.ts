@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getExtractionQueue } from '@/lib/queue/extractionQueue'
 import { createClient } from '@/lib/supabase/server'
-import { isRedisConnected } from '@/lib/redis'
+import { isRedisConnected, getRedisClient } from '@/lib/redis'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +18,9 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // Ensure Redis client is initialized
+  getRedisClient()
 
   // If Redis is not connected, return empty queue status for dev environment
   if (!isRedisConnected()) {

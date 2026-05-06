@@ -9,13 +9,13 @@ export function getRedisConnectionOptions() {
   const parsed = new URL(redisUrl)
 
   return {
-    host: parsed.hostname || 'redis',
+    host: parsed.hostname || 'valkey',
     port: parseInt(parsed.port || '6379', 10),
     username: parsed.username || undefined,
     password: parsed.password || undefined,
     tls: parsed.protocol === 'rediss:' ? {} : undefined,
     retryStrategy: (times: number) => {
-      // Exponential backoff or simple fixed delay
+      console.log(`[Redis] Reconnecting attempt ${times}...`)
       const delay = Math.min(times * 100, 2000)
       return delay
     },
@@ -25,34 +25,46 @@ export function getRedisConnectionOptions() {
   }
 }
 
-let redisSingleton: IORedis | null = null
-let redisConnectionError: Error | null = null
+const globalForRedis = global as unknown as { 
+  redisSingleton: IORedis | undefined
+  redisConnectionError: Error | undefined
+}
 
 export function getRedisClient(): IORedis {
-  if (!redisSingleton) {
-    try {
-      redisSingleton = new IORedis(getRedisConnectionOptions())
-      
-      redisSingleton.on('error', (err) => {
-        console.warn('[Redis] Connection error:', err.message)
-        redisConnectionError = err
-      })
-      
-      redisSingleton.on('connect', () => {
-        console.log('[Redis] Connected')
-        redisConnectionError = null
-      })
-    } catch (error) {
-      console.error('[Redis] Failed to initialize:', error)
-      redisConnectionError = error instanceof Error ? error : new Error(String(error))
-      // Fallback: return a dummy Redis client that won't crash but won't work
-      redisSingleton = new IORedis({ host: 'localhost', port: 6379, retryStrategy: () => null })
-    }
+  if (!globalForRedis.redisSingleton) {
+    const options = getRedisConnectionOptions()
+    console.log('[Redis] Initializing global singleton for host:', options.host)
+    
+    const client = new IORedis(options)
+    
+    client.on('error', (err) => {
+      if (err.message.includes('ECONNREFUSED')) {
+        console.warn('[Redis] Connection refused. Retrying...')
+      } else {
+        console.error('[Redis] Error:', err.message)
+      }
+      globalForRedis.redisConnectionError = err
+    })
+    
+    client.on('connect', () => {
+      console.log('[Redis] Connected successfully to', options.host)
+      globalForRedis.redisConnectionError = undefined
+    })
+
+    client.on('ready', () => {
+      globalForRedis.redisConnectionError = undefined
+    })
+
+    globalForRedis.redisSingleton = client
   }
 
-  return redisSingleton
+  return globalForRedis.redisSingleton
 }
 
 export function isRedisConnected(): boolean {
-  return redisSingleton !== null && redisConnectionError === null
+  const client = globalForRedis.redisSingleton
+  if (!client) return false
+  const status = client.status
+  // Consider 'connecting' as connected for health checks to prevent immediate fallbacks
+  return ['ready', 'connect', 'connecting', 'reconnecting'].includes(status)
 }

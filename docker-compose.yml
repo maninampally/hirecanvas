@@ -1,41 +1,32 @@
 # 1. Define shared environment variables
 x-environment: &env_vars
   NODE_ENV: production
-  NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-  SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-  REDIS_URL: redis://redis:6379
-  NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-  TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
-  SYNC_CRON_SECRET: ${SYNC_CRON_SECRET}
-  GEMINI_API_KEY: ${GEMINI_API_KEY}
-  GEMINI_API_KEY_2: ${GEMINI_API_KEY_2}
-  GEMINI_API_KEY_3: ${GEMINI_API_KEY_3}
-  GEMINI_API_KEY_4: ${GEMINI_API_KEY_4}
-  GEMINI_API_KEY_5: ${GEMINI_API_KEY_5}
-  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-  OPENAI_API_KEY: ${OPENAI_API_KEY}
-  OPENAI_API_KEY_2: ${OPENAI_API_KEY_2}
-  OPENAI_API_KEY_3: ${OPENAI_API_KEY_3}
-  OPENAI_API_KEY_4: ${OPENAI_API_KEY_4}
-  OPENAI_API_KEY_5: ${OPENAI_API_KEY_5}
-  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-  GMAIL_REDIRECT_URI: ${GMAIL_REDIRECT_URI}
-  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
-  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
-  STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID}
-  STRIPE_ELITE_PRICE_ID: ${STRIPE_ELITE_PRICE_ID}
-  STRIPE_PRO_YEARLY_PRICE_ID: ${STRIPE_PRO_YEARLY_PRICE_ID}
-  STRIPE_ELITE_YEARLY_PRICE_ID: ${STRIPE_ELITE_YEARLY_PRICE_ID}
-  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
-  PYTHON_NLP_SERVICE_URL: ${PYTHON_NLP_SERVICE_URL}
-  MONTHLY_INFRA_ESTIMATE_CENTS: ${MONTHLY_INFRA_ESTIMATE_CENTS}
-  AWS_SES_REGION: ${AWS_SES_REGION}
-  AWS_SES_ACCESS_KEY_ID: ${AWS_SES_ACCESS_KEY_ID}
-  AWS_SES_SECRET_ACCESS_KEY: ${AWS_SES_SECRET_ACCESS_KEY}
-  SES_FROM_EMAIL: ${SES_FROM_EMAIL}
-  SES_DRY_RUN: ${SES_DRY_RUN}
+  # Updated to match the new service name 'valkey'
+  REDIS_URL: redis://valkey:6379
+  
+  # Optional variables (silenced warnings)
+  GEMINI_API_KEY_2: ${GEMINI_API_KEY_2:-}
+  GEMINI_API_KEY_3: ${GEMINI_API_KEY_3:-}
+  GEMINI_API_KEY_4: ${GEMINI_API_KEY_4:-}
+  GEMINI_API_KEY_5: ${GEMINI_API_KEY_5:-}
+  OPENAI_API_KEY_2: ${OPENAI_API_KEY_2:-}
+  OPENAI_API_KEY_3: ${OPENAI_API_KEY_3:-}
+  OPENAI_API_KEY_4: ${OPENAI_API_KEY_4:-}
+  OPENAI_API_KEY_5: ${OPENAI_API_KEY_5:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:-}
+  STRIPE_ELITE_PRICE_ID: ${STRIPE_ELITE_PRICE_ID:-}
+  STRIPE_PRO_YEARLY_PRICE_ID: ${STRIPE_PRO_YEARLY_PRICE_ID:-}
+  STRIPE_ELITE_YEARLY_PRICE_ID: ${STRIPE_ELITE_YEARLY_PRICE_ID:-}
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+  PYTHON_NLP_SERVICE_URL: ${PYTHON_NLP_SERVICE_URL:-}
+  MONTHLY_INFRA_ESTIMATE_CENTS: ${MONTHLY_INFRA_ESTIMATE_CENTS:-}
+  AWS_SES_REGION: ${AWS_SES_REGION:-}
+  AWS_SES_ACCESS_KEY_ID: ${AWS_SES_ACCESS_KEY_ID:-}
+  AWS_SES_SECRET_ACCESS_KEY: ${AWS_SES_SECRET_ACCESS_KEY:-}
+  SES_FROM_EMAIL: ${SES_FROM_EMAIL:-}
+  SES_DRY_RUN: ${SES_DRY_RUN:-}
 
 # 2. Define shared worker configuration
 x-worker-base: &worker_base
@@ -43,13 +34,12 @@ x-worker-base: &worker_base
     context: .
     dockerfile: Dockerfile
     target: worker-runner
-    # Same as Dockerfile header: set CACHEBUST (e.g. timestamp) to bust cached COPY/npm layers.
     args:
       CACHEBUST: ${CACHEBUST:-}
   image: hirecanvas-worker:latest
   environment: *env_vars
   depends_on:
-    redis:
+    valkey:
       condition: service_healthy
   restart: unless-stopped
 
@@ -61,12 +51,15 @@ services:
       target: runner
       args:
         CACHEBUST: ${CACHEBUST:-}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
     image: hirecanvas-app:latest
     ports:
       - "3000:3000"
     environment: *env_vars
     depends_on:
-      redis:
+      valkey:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
@@ -92,19 +85,36 @@ services:
     <<: *worker_base
     command: ["npm", "run", "worker:digest"]
 
-  redis:
-    image: redis:7-alpine
+  valkey:
+    image: valkey/valkey:8-alpine
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
+      - valkey_data:/data
+    command: valkey-server --appendonly yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aura-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Overriding the default entrypoint lets us use shell scripting
+    entrypoint: ["/usr/bin/sh", "-c"]
+    command: >
+      "ollama serve & 
+       sleep 5 && 
+       ollama pull llama3.2 &&
+       ollama pull nomic-embed-text &&
+       wait"
+
 volumes:
-  redis_data:
+  valkey_data:
+  ollama_data:

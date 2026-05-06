@@ -1,6 +1,7 @@
 import { sendTransactionalEmail } from '@/lib/email/ses'
 import { type DigestJobPayload } from '@/lib/queue/digestQueue'
 import { createServiceClient } from '@/lib/supabase/service'
+import { processAccountCleanups } from '@/lib/security/accountCleanup'
 
 type PreferenceRow = {
   user_id: string
@@ -169,4 +170,7 @@ export async function processDigestJob(payload: DigestJobPayload) {
   // Keep only the 10 most recent sync_status rows per user — prevents unbounded growth
   // (3 syncs/day × 365 days = 1,095 rows/user/year without this)
   await supabase.rpc('cleanup_old_sync_status')
+  
+  // Finalize any accounts scheduled for deletion that have passed their grace period
+  await processAccountCleanups()
 }
