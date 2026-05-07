@@ -5,6 +5,7 @@ const DICE_MCP_URL = "https://mcp.dice.com/mcp";
 
 // Persistent connection state
 let globalClient: Client | null = null;
+let globalTransport: SSEClientTransport | null = null;
 let isConnecting = false;
 
 // Simple TTL Cache (10 minutes)

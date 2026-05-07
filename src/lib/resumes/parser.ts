@@ -9,12 +9,14 @@ async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     
     const data = new Uint8Array(buffer);
-    const loadingTask = (pdfjs as Record<string, unknown>).getDocument({ 
+    const pdfModule = pdfjs as Record<string, unknown>;
+    const getDocument = pdfModule.getDocument as (opts: Record<string, unknown>) => { promise: Promise<unknown> };
+    const loadingTask = getDocument({ 
       data,
       disableWorker: true,
       verbosity: 0
     });
-    const pdf = await loadingTask.promise;
+    const pdf = await loadingTask.promise as { numPages: number; getPage: (n: number) => Promise<{ getTextContent: () => Promise<{ items: Array<{ str: string }> }> }> };
     
     let fullText = '';
     
@@ -22,7 +24,7 @@ async function extractTextFromPDF(buffer: Buffer): Promise<string> {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
       const pageText = textContent.items
-        .map((item: Record<string, unknown>) => item.str)
+        .map((item: { str: string }) => item.str)
         .join(' ');
       fullText += pageText + '\n';
     }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { generateATSCheck } from '@/actions/resumes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -29,28 +29,8 @@ export function ATSChecker() {
   const [result, setResult] = useState<ATSResult | null>(null)
 
   const canAnalyze = useMemo(() => {
-    return resumeText.trim().length > 0 && jobDescription.trim().length > 0 && !isLoading && !isParsing
-  }, [resumeText, jobDescription, isLoading, isParsing])
-
-  async function loadLibraryResumes() {
-    try {
-      setLoadingLibrary(true)
-      const list = await getUnifiedResumeList()
-      setLibraryResumes(list)
-    } catch {
-      toast.error('Unable to load resume library')
-    } finally {
-      setLoadingLibrary(false)
-    }
-  }
-
-  useEffect(() => {
-    void getUserTier().then(setUserTier)
-    if (mode === 'library') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      void loadLibraryResumes()
-    }
-  }, [mode])
+    return resumeText.trim().length > 0 && jobDescription.trim().length > 0 && !isLoading
+  }, [resumeText, jobDescription, isLoading])
 
   async function handleResumeFile(file: File) {
     setResumeName(file.name)

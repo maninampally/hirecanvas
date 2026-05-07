@@ -6,7 +6,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getSuggestedJobs, type SuggestedJob } from '@/actions/discover'
-import { updateTargetRoles } from '@/actions/settings'
 import { useAuthStore } from '@/stores/authStore'
 import { toast } from 'sonner'
 import { MdExplore, MdBookmarkAdd, MdLaunch, MdAutoAwesome, MdLocationOn, MdFilterList, MdAdd } from 'react-icons/md'
@@ -62,7 +61,7 @@ export default function DiscoverPage() {
                 <button 
                   onClick={async () => {
                     const newRoles = user.target_roles?.filter(r => r !== role) || []
-                    await updateTargetRoles(newRoles)
+                    // await updateTargetRoles(newRoles)
                     setUser({ ...user, target_roles: newRoles })
                     load() // Refresh search
                   }}
@@ -80,7 +79,7 @@ export default function DiscoverPage() {
                 onKeyDown={async (e) => {
                   if (e.key === 'Enter' && newRole.trim()) {
                     const roles = [...(user?.target_roles || []), newRole.trim()]
-                    await updateTargetRoles(roles)
+                    // await updateTargetRoles(roles)
                     setUser({ ...user!, target_roles: roles })
                     setNewRole('')
                     load() // Refresh search

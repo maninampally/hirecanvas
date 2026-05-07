@@ -15,7 +15,7 @@ const COOLDOWN_MS = 25 * 1000
 export type LLMRouterInput = {
   prompt: string
   systemPrompt?: string
-  task?: 'job_extraction' | 'general'
+  task?: 'job_extraction' | 'resume_tailoring' | 'resume_analysis' | 'general'
   preferredProvider?: AIProvider
   strictPreferredProvider?: boolean
   temperature?: number

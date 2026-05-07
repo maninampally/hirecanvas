@@ -69,7 +69,7 @@ export async function getSuggestedJobs(): Promise<SuggestedJob[]> {
   // De-duplicate jobs by ID
   const seenIds = new Set<string>()
   const diceJobs = flattenedDiceJobs.filter(job => {
-    const id = job.jobId || job.id
+    const id = String(job.jobId || job.id)
     if (seenIds.has(id)) return false
     seenIds.add(id)
     return true
@@ -118,12 +118,12 @@ export async function getSuggestedJobs(): Promise<SuggestedJob[]> {
       
       return {
         ...suggestion,
-        matchScore: parsed.score || 0,
-        matchReason: parsed.reason || 'Matches your profile.'
-      }
+        matchScore: parsed.score ?? 0,
+        matchReason: parsed.reason ?? 'Matches your profile.'
+      } as SuggestedJob & { matchScore: number; matchReason: string }
     } catch (e) {
       console.error(`[Discover] Failed to score job ${suggestion.id}:`, e)
-      return { ...suggestion, matchScore: 0, matchReason: 'Analysis failed.' }
+      return { ...suggestion, matchScore: 0, matchReason: 'Analysis failed.' } as SuggestedJob & { matchScore: number; matchReason: string }
     }
   }))
 
