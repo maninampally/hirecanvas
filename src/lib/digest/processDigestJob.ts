@@ -2,6 +2,7 @@ import { sendTransactionalEmail } from '@/lib/email/ses'
 import { type DigestJobPayload } from '@/lib/queue/digestQueue'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processAccountCleanups } from '@/lib/security/accountCleanup'
+import { getAppUrl } from '@/lib/utils/appUrl'
 
 type PreferenceRow = {
   user_id: string
@@ -137,7 +138,7 @@ export async function processDigestJob(payload: DigestJobPayload) {
   for (const target of targets) {
     const stats = await getDigestStats(target.user.id)
 
-    const unsubscribeUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/unsubscribe?token=${target.preference.unsubscribe_token}`
+    const unsubscribeUrl = `${getAppUrl()}/api/unsubscribe?token=${target.preference.unsubscribe_token}`
 
     const emailResult = await sendTransactionalEmail({
       to: target.user.email,

@@ -4,7 +4,6 @@ import { ProviderError, type ProviderRequest } from '@/lib/ai/gemini'
 import { runOpenAI } from '@/lib/ai/openai'
 import { getRedisClient } from '@/lib/redis'
 import { runGemini } from '@/lib/ai/gemini'
-import { runOllama } from '@/lib/ai/ollama'
 
 export type AIProvider = 'gemini' | 'claude' | 'openai' | 'ollama'
 export type RoutedProvider = AIProvider | 'regex_fallback'

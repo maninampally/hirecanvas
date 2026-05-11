@@ -35,10 +35,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ claimed: false, reason: 'already_claimed' })
   }
 
-  await service
+  const { data: updated } = await service
     .from('app_users')
     .update({ referred_by: referrer.id, updated_at: new Date().toISOString() })
     .eq('id', user.id)
+    .is('referred_by', null)
+    .select('id')
+
+  if (!updated || updated.length === 0) {
+    return NextResponse.json({ claimed: false, reason: 'already_claimed' })
+  }
 
   await service.from('referral_events').upsert(
     {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { buildGoogleOAuthUrl, generateOAuthState } from '@/lib/gmail/oauth'
+import { getAppUrl } from '@/lib/utils/appUrl'
 
 export async function GET() {
   const supabase = await createClient()
@@ -9,7 +10,7 @@ export async function GET() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    return NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'))
+    return NextResponse.redirect(new URL('/login', getAppUrl()))
   }
 
   try {
@@ -26,7 +27,7 @@ export async function GET() {
 
     return response
   } catch (error) {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const baseUrl = getAppUrl()
     const url = new URL('/settings', baseUrl)
     url.searchParams.set('tab', 'connections')
     url.searchParams.set(

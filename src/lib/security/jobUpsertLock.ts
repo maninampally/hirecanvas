@@ -28,7 +28,8 @@ export async function withJobUpsertLock<T>(userId: string, fn: () => Promise<T>)
           await redis.del(key).catch(() => {})
         }
       }
-    } catch {
+    } catch (err) {
+      console.warn('[jobUpsertLock] Redis error, running without lock:', err instanceof Error ? err.message : err)
       return fn()
     }
     await new Promise((r) => setTimeout(r, SPIN_MS))

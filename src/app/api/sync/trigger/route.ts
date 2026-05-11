@@ -46,6 +46,7 @@ function normalizeDateInput(value: unknown) {
   const trimmed = value.trim()
   if (!trimmed) return undefined
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return undefined
+  if (!Number.isFinite(Date.parse(`${trimmed}T00:00:00Z`))) return undefined
   return trimmed
 }
 

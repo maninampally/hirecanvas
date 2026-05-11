@@ -5,7 +5,6 @@ const DICE_MCP_URL = "https://mcp.dice.com/mcp";
 
 // Persistent connection state
 let globalClient: Client | null = null;
-let globalTransport: SSEClientTransport | null = null;
 let isConnecting = false;
 
 // Simple TTL Cache (10 minutes)
@@ -49,11 +48,9 @@ async function getDiceClient(): Promise<Client> {
     transport.onclose = () => {
       console.warn("[DiceMCP] Connection closed. Client will reset.");
       globalClient = null;
-      globalTransport = null;
     };
 
     globalClient = client;
-    globalTransport = transport;
     return client;
   } catch (err) {
     console.error("[DiceMCP] Persistent connection failed:", err);

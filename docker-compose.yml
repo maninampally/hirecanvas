@@ -4,15 +4,26 @@ x-environment: &env_vars
   # Updated to match the new service name 'valkey'
   REDIS_URL: redis://valkey:6379
   
-  # Optional variables (silenced warnings)
-  GEMINI_API_KEY_2: ${GEMINI_API_KEY_2:-}
-  GEMINI_API_KEY_3: ${GEMINI_API_KEY_3:-}
-  GEMINI_API_KEY_4: ${GEMINI_API_KEY_4:-}
-  GEMINI_API_KEY_5: ${GEMINI_API_KEY_5:-}
-  OPENAI_API_KEY_2: ${OPENAI_API_KEY_2:-}
-  OPENAI_API_KEY_3: ${OPENAI_API_KEY_3:-}
-  OPENAI_API_KEY_4: ${OPENAI_API_KEY_4:-}
-  OPENAI_API_KEY_5: ${OPENAI_API_KEY_5:-}
+  # Supabase (required for sync/extraction workers)
+  NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+  SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+  
+  # App
+  NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+  
+  # Security
+  TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+  SYNC_CRON_SECRET: ${SYNC_CRON_SECRET:-}
+  ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
+  SYNC_WORKER_CONCURRENCY: ${SYNC_WORKER_CONCURRENCY:-2}
+  
+  # Gmail OAuth
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GMAIL_REDIRECT_URI: ${GMAIL_REDIRECT_URI:-}
+  
+  # Stripe (placeholder — configure before enabling payments)
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
   STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:-}
@@ -20,13 +31,52 @@ x-environment: &env_vars
   STRIPE_PRO_YEARLY_PRICE_ID: ${STRIPE_PRO_YEARLY_PRICE_ID:-}
   STRIPE_ELITE_YEARLY_PRICE_ID: ${STRIPE_ELITE_YEARLY_PRICE_ID:-}
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
-  PYTHON_NLP_SERVICE_URL: ${PYTHON_NLP_SERVICE_URL:-}
-  MONTHLY_INFRA_ESTIMATE_CENTS: ${MONTHLY_INFRA_ESTIMATE_CENTS:-}
-  AWS_SES_REGION: ${AWS_SES_REGION:-}
+
+  # AWS SES (email delivery)
+  AWS_SES_REGION: ${AWS_SES_REGION:-us-east-1}
   AWS_SES_ACCESS_KEY_ID: ${AWS_SES_ACCESS_KEY_ID:-}
   AWS_SES_SECRET_ACCESS_KEY: ${AWS_SES_SECRET_ACCESS_KEY:-}
   SES_FROM_EMAIL: ${SES_FROM_EMAIL:-}
-  SES_DRY_RUN: ${SES_DRY_RUN:-}
+  SES_DRY_RUN: ${SES_DRY_RUN:-true}
+
+  # Python NLP service
+  PYTHON_NLP_SERVICE_URL: ${PYTHON_NLP_SERVICE_URL:-}
+
+  # Infra cost tracking
+  MONTHLY_INFRA_ESTIMATE_CENTS: ${MONTHLY_INFRA_ESTIMATE_CENTS:-}
+
+  # AI Keys
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  GEMINI_API_KEY_2: ${GEMINI_API_KEY_2:-}
+  GEMINI_API_KEY_3: ${GEMINI_API_KEY_3:-}
+  GEMINI_API_KEY_4: ${GEMINI_API_KEY_4:-}
+  GEMINI_API_KEY_5: ${GEMINI_API_KEY_5:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_API_KEY_2: ${OPENAI_API_KEY_2:-}
+  OPENAI_API_KEY_3: ${OPENAI_API_KEY_3:-}
+  OPENAI_API_KEY_4: ${OPENAI_API_KEY_4:-}
+  OPENAI_API_KEY_5: ${OPENAI_API_KEY_5:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+  # AI model overrides (optional — defaults used if unset)
+  GEMINI_MODEL: ${GEMINI_MODEL:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-}
+  OPENAI_VERIFIER_MODEL: ${OPENAI_VERIFIER_MODEL:-}
+  CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+  EXTRACTION_MODE: ${EXTRACTION_MODE:-}
+
+  # Gmail sync tuning (optional)
+  GMAIL_SYNC_QUERY: ${GMAIL_SYNC_QUERY:-}
+  GMAIL_SYNC_PAGE_SIZE: ${GMAIL_SYNC_PAGE_SIZE:-}
+  GMAIL_SYNC_MAX_MESSAGES: ${GMAIL_SYNC_MAX_MESSAGES:-}
+
+  # Ollama (optional local LLM)
+  OLLAMA_API_URL: ${OLLAMA_API_URL:-http://ollama:11434}
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+
+  # Observability
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
 
 # 2. Define shared worker configuration
 x-worker-base: &worker_base
@@ -99,22 +149,20 @@ services:
       retries: 5
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: aura-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    # Overriding the default entrypoint lets us use shell scripting
-    entrypoint: ["/usr/bin/sh", "-c"]
-    command: >
-      "ollama serve & 
-       sleep 5 && 
-       ollama pull llama3.2 &&
-       ollama pull nomic-embed-text &&
-       wait"
+  # ollama:  # disabled — enable when OLLAMA_ONLY=true needed
+  #   image: ollama/ollama:latest
+  #   container_name: aura-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   entrypoint: ["/usr/bin/sh", "-c"]
+  #   command: >
+  #     "ollama serve &
+  #      sleep 5 &&
+  #      ollama pull qwen2.5:7b &&
+  #      wait"
 
 volumes:
   valkey_data:
-  ollama_data:
+  # ollama_data:

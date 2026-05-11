@@ -111,7 +111,7 @@ export const FAST_SKIP_PATTERNS = {
     /\bapplication (received|confirmed|submitted|update)\b/i,
     /\bupdate on your (application|candidacy)\b/i,
     /\bstatus of your application\b/i,
-    /\bthank you for (applying|your application)\b/i,
+    /\bthank you for (applying|your application|your job application)\b/i,
     /\bphone screen\b/i,
     /\btechnical (interview|assessment|screen)\b/i,
     /\bcoding (challenge|assessment)\b/i,

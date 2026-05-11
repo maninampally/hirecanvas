@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { generateATSCheck } from '@/actions/resumes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

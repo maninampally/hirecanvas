@@ -27,7 +27,8 @@ export async function recordAuditEvent(input: RecordAuditEventInput) {
       ip_address: input.ipAddress || null,
       user_agent: input.userAgent || null,
     })
-  } catch {
-    // Audit writes should never block user flows.
+  } catch (err) {
+    // Audit writes should never block user flows, but log so ops can detect degradation.
+    console.warn('[audit] Failed to record event:', input.eventType, err instanceof Error ? err.message : err)
   }
 }

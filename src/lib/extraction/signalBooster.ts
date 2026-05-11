@@ -7,6 +7,7 @@ export const ATS_DOMAINS = new Set([
   'greenhouse.io',
   'lever.co',
   'workday.com',
+  'myworkday.com',
   'myworkdayjobs.com',
   'taleo.net',
   'icims.com',

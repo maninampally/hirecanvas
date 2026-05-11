@@ -7,6 +7,7 @@ import { recordAuditEvent } from '@/lib/security/audit'
 import { listGmailMessages } from '@/lib/gmail/client'
 import { getValidGmailAccessToken } from '@/lib/gmail/token'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getAppUrl } from '@/lib/utils/appUrl'
 
 export type NotificationPreferences = {
   email_job_updates: boolean
@@ -154,7 +155,7 @@ async function getAuthenticatedUser() {
 
 export async function getReferralStatus(): Promise<ReferralStatus> {
   const { supabase, user } = await getAuthenticatedUser()
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = getAppUrl()
 
   const { data: profile, error: profileError } = await supabase
     .from('app_users')
@@ -516,7 +517,7 @@ export async function setUserTimezone(timezone: string) {
 export async function getAutoSyncSettings() {
   await getAuthenticatedUser()
 
-  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings/auto-sync`, {
+  const response = await fetch(`${getAppUrl()}/api/settings/auto-sync`, {
     headers: {
       cookie: (await headers()).get('cookie') || '',
     },
@@ -533,7 +534,7 @@ export async function getAutoSyncSettings() {
 export async function updateAutoSyncTime(autoSyncTime: string | null) {
   await getAuthenticatedUser()
 
-  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings/auto-sync`, {
+  const response = await fetch(`${getAppUrl()}/api/settings/auto-sync`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

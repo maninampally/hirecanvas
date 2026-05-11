@@ -23,6 +23,11 @@ async function assertAdmin() {
     return { error: 'Forbidden', status: 403 as const }
   }
 
+  const adminAllowlist = process.env.ADMIN_USER_IDS?.split(',').map((id) => id.trim()).filter(Boolean) ?? []
+  if (adminAllowlist.length > 0 && !adminAllowlist.includes(appUser.id)) {
+    return { error: 'Forbidden', status: 403 as const }
+  }
+
   return { adminUserId: appUser.id }
 }
 
@@ -68,6 +73,11 @@ export async function PATCH(request: NextRequest) {
 
   if (!body.userId) {
     return NextResponse.json({ error: 'userId is required' }, { status: 400 })
+  }
+
+  const VALID_TIERS: UserTier[] = ['free', 'pro', 'elite', 'admin']
+  if (body.tier && !VALID_TIERS.includes(body.tier)) {
+    return NextResponse.json({ error: 'Invalid tier value' }, { status: 400 })
   }
 
   const patch: Record<string, unknown> = {

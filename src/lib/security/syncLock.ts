@@ -28,7 +28,11 @@ export async function releaseSyncLock(userId: string) {
   }
 
   const redis = getRedisClient()
-  await redis.del(getSyncLockKey(userId))
+  try {
+    await redis.del(getSyncLockKey(userId))
+  } catch (err) {
+    console.error('[syncLock] Failed to release lock for user:', userId, err instanceof Error ? err.message : err)
+  }
 }
 
 export async function refreshSyncLock(userId: string, ttlSeconds = DEFAULT_LOCK_TTL_SECONDS) {

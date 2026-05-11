@@ -181,8 +181,9 @@ async function findMatchingJobRow(
   userId: string,
   extraction: VerifiedExtraction
 ): Promise<JobRow | undefined> {
+  const MAX_SCAN_PAGES = 20 // cap at 10k jobs scanned
   let offset = 0
-  for (;;) {
+  for (let page = 0; page < MAX_SCAN_PAGES; page++) {
     const { data, error } = await supabase
       .from('jobs')
       .select(
@@ -209,6 +210,9 @@ async function findMatchingJobRow(
     if (chunk.length < JOB_MATCH_PAGE) return undefined
     offset += JOB_MATCH_PAGE
   }
+
+  console.warn('[upsert] Job match scan exceeded page limit for userId:', userId)
+  return undefined
 }
 
 /**
