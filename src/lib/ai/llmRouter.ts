@@ -4,12 +4,11 @@ import { ProviderError, type ProviderRequest } from '@/lib/ai/gemini'
 import { runOpenAI } from '@/lib/ai/openai'
 import { getRedisClient } from '@/lib/redis'
 import { runGemini } from '@/lib/ai/gemini'
-import { runOllama } from '@/lib/ai/ollama'
 
 export type AIProvider = 'gemini' | 'claude' | 'openai' | 'ollama'
 export type RoutedProvider = AIProvider | 'regex_fallback'
 
-const PROVIDER_CHAIN: AIProvider[] = ['ollama', 'gemini', 'openai', 'claude']
+const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'openai', 'claude', 'ollama']
 const COOLDOWN_MS = 25 * 1000
 
 export type LLMRouterInput = {
@@ -20,7 +19,17 @@ export type LLMRouterInput = {
   strictPreferredProvider?: boolean
   temperature?: number
   maxTokens?: number
+  /**
+   * Force a specific model on whichever provider runs. Verifier stage
+   * uses this so it can ask for `gpt-4o` instead of the extractor's
+   * `gpt-4o-mini` when both stages end up on OpenAI.
+   */
   modelOverride?: string
+  /**
+   * Per-provider model overrides — picked over `modelOverride` for the
+   * matching provider. Lets the verifier set `gpt-4o` for openai while
+   * leaving claude/gemini on their defaults.
+   */
   modelOverridePerProvider?: Partial<Record<AIProvider, string>>
 }
 
@@ -58,14 +67,12 @@ function isProviderConfigured(provider: AIProvider): boolean {
   return false
 }
 
-function getProviderOrder(preferredProvider?: AIProvider, strictPreferredProvider?: boolean) {
-  const configured = PROVIDER_CHAIN.filter(isProviderConfigured)
-  
-  if (preferredProvider && (strictPreferredProvider || isProviderConfigured(preferredProvider))) {
-    return [preferredProvider, ...configured.filter((p) => p !== preferredProvider)]
+function getProviderOrder(preferredProvider?: AIProvider) {
+  if (preferredProvider && isProviderConfigured(preferredProvider)) {
+    return [preferredProvider, ...PROVIDER_CHAIN.filter((p) => p !== preferredProvider)]
   }
   
-  return configured
+  return PROVIDER_CHAIN
 }
 
 function parseEpoch(rawValue: string | undefined) {
@@ -75,19 +82,29 @@ function parseEpoch(rawValue: string | undefined) {
 
 async function getRedisSafe() {
   if (redisRef !== undefined) return redisRef
+
   try {
     redisRef = getRedisClient()
+    await redisRef.connect()
   } catch {
     redisRef = null
   }
+
   return redisRef
 }
 
 async function getProviderHealth(provider: AIProvider): Promise<ProviderHealth> {
   const redis = await getRedisSafe()
   if (!redis) {
-    return { provider, cooldownUntil: 0, lastError: '', failures: 0, lastSuccessAt: 0 }
+    return {
+      provider,
+      cooldownUntil: 0,
+      lastError: '',
+      failures: 0,
+      lastSuccessAt: 0,
+    }
   }
+
   const health = await redis.hgetall(getHealthKey(provider))
   return {
     provider,
@@ -101,11 +118,13 @@ async function getProviderHealth(provider: AIProvider): Promise<ProviderHealth> 
 async function writeProviderHealth(provider: AIProvider, patch: Partial<ProviderHealth>) {
   const redis = await getRedisSafe()
   if (!redis) return
+
   const payload: Record<string, string> = {}
   if (patch.cooldownUntil !== undefined) payload.cooldownUntil = String(patch.cooldownUntil)
   if (patch.lastError !== undefined) payload.lastError = patch.lastError
   if (patch.failures !== undefined) payload.failures = String(patch.failures)
   if (patch.lastSuccessAt !== undefined) payload.lastSuccessAt = String(patch.lastSuccessAt)
+
   if (Object.keys(payload).length > 0) {
     await redis.hset(getHealthKey(provider), payload)
   }
@@ -113,34 +132,65 @@ async function writeProviderHealth(provider: AIProvider, patch: Partial<Provider
 
 function buildRegexFallback(input: LLMRouterInput, failedProviders: AIProvider[]): LLMRouterResult {
   const raw = input.prompt.toLowerCase()
-  const status = raw.includes('offer') ? 'Offer' : raw.includes('interview') ? 'Interview' : raw.includes('assessment') || raw.includes('screen') ? 'Screening' : raw.includes('rejected') || raw.includes('unfortunately') ? 'Rejected' : raw.includes('applied') || raw.includes('application') ? 'Applied' : null
+  const status = raw.includes('offer')
+    ? 'Offer'
+    : raw.includes('interview')
+    ? 'Interview'
+    : raw.includes('assessment') || raw.includes('screen')
+    ? 'Screening'
+    : raw.includes('rejected') || raw.includes('unfortunately')
+    ? 'Rejected'
+    : raw.includes('applied') || raw.includes('application')
+    ? 'Applied'
+    : null
+
   const company = input.prompt.match(/at\s+([A-Za-z0-9&.\-\s]{2,})/i)?.[1]?.trim() || null
-  const text = input.task === 'job_extraction' ? JSON.stringify({ provider: 'regex_fallback', company, inferredStatus: status, confidence: 0.2, failedProviders }, null, 2) : 'Fallback response: AI models unavailable. Using heuristic analysis.'
+
+  const text =
+    input.task === 'job_extraction'
+      ? JSON.stringify(
+          {
+            provider: 'regex_fallback',
+            company,
+            inferredStatus: status,
+            confidence: 0.2,
+            failedProviders,
+          },
+          null,
+          2
+        )
+      : 'Fallback response: provider models unavailable. Retry later.'
 
   return {
     provider: 'regex_fallback',
     model: 'regex-v1',
     text,
     fallbackCount: failedProviders.length,
-    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    },
   }
 }
 
 async function runProvider(provider: AIProvider, request: ProviderRequest) {
   if (provider === 'gemini') return runGemini(request)
   if (provider === 'claude') return runClaude(request)
-  if (provider === 'openai') return runOpenAI(request)
-  return runOllama(request)
+  return runOpenAI(request)
 }
 
 export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouterResult> {
-  const providerOrder = getProviderOrder(input.preferredProvider, input.strictPreferredProvider)
+  const providerOrder = getProviderOrder(input.preferredProvider)
   
-  // SPECIAL RULE: If only Ollama is configured or if we are doing a local-first task, 
-  // only try Ollama and skip the paid ones to avoid unwanted costs.
-  const chain = (input.task === 'resume_analysis' || input.task === 'resume_tailoring') 
-    ? providerOrder.filter(p => p === 'ollama') 
-    : providerOrder
+  // SPECIAL RULE: For resume tasks, try Ollama first to avoid costs.
+  // For other tasks, skip Ollama and only use paid providers (they fall back to regex if all fail).
+  let chain: AIProvider[]
+  if (input.task === 'resume_analysis' || input.task === 'resume_tailoring') {
+    chain = providerOrder.filter(p => p === 'ollama')
+  } else {
+    chain = providerOrder.filter(p => p !== 'ollama')
+  }
 
   const finalOrder = chain.length > 0 ? chain : providerOrder
   const failedProviders: AIProvider[] = []
@@ -162,7 +212,12 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
         modelOverride,
       })
 
-      await writeProviderHealth(provider, { cooldownUntil: 0, lastError: '', failures: 0, lastSuccessAt: Date.now() })
+      await writeProviderHealth(provider, {
+        cooldownUntil: 0,
+        lastError: '',
+        failures: 0,
+        lastSuccessAt: Date.now(),
+      })
 
       return {
         provider,
@@ -174,10 +229,11 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
     } catch (error) {
       failedProviders.push(provider)
       const failures = health.failures + 1
+      const quotaError = error instanceof ProviderError && (error as ProviderError & { quotaError?: boolean }).quotaError
       await writeProviderHealth(provider, {
         failures,
         lastError: error instanceof Error ? error.message : 'unknown_error',
-        cooldownUntil: (error as any).quotaError ? Date.now() + COOLDOWN_MS : health.cooldownUntil,
+        cooldownUntil: quotaError ? Date.now() + COOLDOWN_MS : health.cooldownUntil,
       })
     }
   }

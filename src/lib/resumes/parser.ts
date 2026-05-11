@@ -9,12 +9,14 @@ async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     
     const data = new Uint8Array(buffer);
-    const loadingTask = (pdfjs as any).getDocument({ 
+    const pdfModule = pdfjs as Record<string, unknown>;
+    const getDocument = pdfModule.getDocument as (opts: Record<string, unknown>) => { promise: Promise<unknown> };
+    const loadingTask = getDocument({ 
       data,
       disableWorker: true,
       verbosity: 0
     });
-    const pdf = await loadingTask.promise;
+    const pdf = await loadingTask.promise as { numPages: number; getPage: (n: number) => Promise<{ getTextContent: () => Promise<{ items: Array<{ str: string }> }> }> };
     
     let fullText = '';
     
@@ -22,7 +24,7 @@ async function extractTextFromPDF(buffer: Buffer): Promise<string> {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
       const pageText = textContent.items
-        .map((item: any) => item.str)
+        .map((item: { str: string }) => item.str)
         .join(' ');
       fullText += pageText + '\n';
     }
@@ -41,7 +43,7 @@ export async function extractTextFromBuffer(buffer: Buffer, mimeType: string): P
     try {
       const text = await extractTextFromPDF(buffer);
       if (text.length > 10) return text;
-    } catch (err) {
+    } catch {
       console.warn('[Parser] PDF extraction failed, attempting fallback.');
     }
 
@@ -66,7 +68,7 @@ export async function extractTextFromBuffer(buffer: Buffer, mimeType: string): P
     try {
       const result = await mammoth.extractRawText({ buffer });
       return result.value || '';
-    } catch (err) {
+    } catch {
       return "Failed to extract Word document text.";
     }
   }

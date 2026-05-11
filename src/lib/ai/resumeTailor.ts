@@ -62,7 +62,7 @@ RESPONSE FORMAT (JSON):
       changesMade: data.changesMade || [],
       matchExplanation: data.matchExplanation || '',
     }
-  } catch (error) {
+  } catch {
     // Fallback if AI doesn't return clean JSON
     return {
       tailoredText: result.text,

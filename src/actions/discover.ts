@@ -69,7 +69,7 @@ export async function getSuggestedJobs(): Promise<SuggestedJob[]> {
   // De-duplicate jobs by ID
   const seenIds = new Set<string>()
   const diceJobs = flattenedDiceJobs.filter(job => {
-    const id = job.jobId || job.id
+    const id = String(job.jobId || job.id)
     if (seenIds.has(id)) return false
     seenIds.add(id)
     return true
@@ -81,7 +81,7 @@ export async function getSuggestedJobs(): Promise<SuggestedJob[]> {
     return []
   }
 
-  const rawSuggestions = diceJobs.map((job: any, index: number) => ({
+  const rawSuggestions = diceJobs.map((job, index: number) => ({
     id: `dice-${job.jobId || index}`,
     company: job.companyName || 'Unknown Company',
     title: job.title || 'Software Engineer',
@@ -92,13 +92,13 @@ export async function getSuggestedJobs(): Promise<SuggestedJob[]> {
     description: job.snippet || job.description || 'No description available.'
   }))
 
-  const suggestionsWithScores = await Promise.all(rawSuggestions.map(async (job: any) => {
+  const suggestionsWithScores = await Promise.all(rawSuggestions.map(async (suggestion) => {
     try {
       const prompt = `
         Resume Snippet: ${resume.content.slice(0, 2000)}
         ---
-        Job: ${job.title} at ${job.company}
-        Description: ${job.description}
+        Job: ${suggestion.title} at ${suggestion.company}
+        Description: ${suggestion.description}
         ---
         Score this match 0-100 and give a 1-sentence reason.
         Return JSON: { "score": number, "reason": string }
@@ -114,16 +114,16 @@ export async function getSuggestedJobs(): Promise<SuggestedJob[]> {
       const cleanedText = result.text.replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(cleanedText)
       
-      console.log(`[Discover] Scored "${job.title}": ${parsed.score}%`)
+      console.log(`[Discover] Scored "${suggestion.title}": ${parsed.score}%`)
       
       return {
-        ...job,
-        matchScore: parsed.score || 0,
-        matchReason: parsed.reason || 'Matches your profile.'
-      }
+        ...suggestion,
+        matchScore: parsed.score ?? 0,
+        matchReason: parsed.reason ?? 'Matches your profile.'
+      } as SuggestedJob & { matchScore: number; matchReason: string }
     } catch (e) {
-      console.error(`[Discover] Failed to score job ${job.id}:`, e)
-      return { ...job, matchScore: 0, matchReason: 'Analysis failed.' }
+      console.error(`[Discover] Failed to score job ${suggestion.id}:`, e)
+      return { ...suggestion, matchScore: 0, matchReason: 'Analysis failed.' } as SuggestedJob & { matchScore: number; matchReason: string }
     }
   }))
 

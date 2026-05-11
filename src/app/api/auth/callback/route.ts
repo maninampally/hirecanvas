@@ -3,9 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { getGmailProfile } from '@/lib/gmail/client'
 import { exchangeCodeForTokens } from '@/lib/gmail/oauth'
 import { encryptSecret } from '@/lib/security/encryption'
+import { getAppUrl } from '@/lib/utils/appUrl'
 
 function redirectWithParams(pathname: string, params: Record<string, string>) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const baseUrl = getAppUrl()
   const url = new URL(pathname, baseUrl)
   Object.entries(params).forEach(([key, value]) => {
     url.searchParams.set(key, value)
@@ -18,9 +19,8 @@ export async function GET(request: NextRequest) {
   const state = request.nextUrl.searchParams.get('state')
   const stateCookie = request.cookies.get('gmail_oauth_state')?.value
   const stateIsValid = Boolean(code && state && stateCookie && state === stateCookie)
-  const allowStateBypass = process.env.NODE_ENV !== 'production'
 
-  if (!code || (!stateIsValid && !allowStateBypass)) {
+  if (!code || !stateIsValid) {
     const response = NextResponse.redirect(
       redirectWithParams('/settings', { error: 'invalid_oauth_state', tab: 'connections' })
     )

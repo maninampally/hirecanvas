@@ -9,7 +9,6 @@
  * Usage:
  *   npm run reset:rejected -- <your-login-email>
  */
-import { findAuthUserIdByEmail } from '@/lib/supabase/findAuthUserIdByEmail'
 import { createServiceClient } from '@/lib/supabase/service'
 
 async function main() {

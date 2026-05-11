@@ -171,7 +171,7 @@ const DEFAULT_SYNC_QUERY = [
   'subject:(',
     // Application confirmations — quoted phrases only, no single words
     '"application received" OR "application submitted" OR',
-    '"thank you for applying" OR "we received your application" OR',
+    '"thank you for applying" OR "thank you for your job application" OR "we received your application" OR',
     '"application confirmation" OR "your application to" OR',
     '"your application for" OR "applied for" OR',
     // Interview — specific phrases, not just the word "interview"
@@ -194,7 +194,7 @@ const DEFAULT_SYNC_QUERY = [
   ')',
   // ATS platform senders — always safe, these are always job emails
   'OR from:(',
-    'greenhouse.io OR lever.co OR workday.com OR taleo.net OR icims.com OR',
+    'greenhouse.io OR lever.co OR workday.com OR myworkday.com OR taleo.net OR icims.com OR',
     'smartrecruiters.com OR jobvite.com OR ashbyhq.com OR rippling.com OR',
     'recruitcrm.io OR myworkdayjobs.com OR bamboohr.com OR successfactors.com OR',
     'applytojob.com OR dover.com OR jazz.co OR recruitee.com OR',

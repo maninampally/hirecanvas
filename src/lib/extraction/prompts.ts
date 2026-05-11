@@ -103,7 +103,7 @@ Respond with exactly this JSON:
 }
 
 CLASSIFICATION RULES — follow exactly:
-- If subject contains "thank you for applying" or "we received your application" or "application received" or "application submitted" or "application confirmation" → is_job_lifecycle: true, email_type: "application_confirmation", confidence >= 0.92
+- If subject contains "thank you for applying" or "thank you for your job application" or "we received your application" or "application received" or "application submitted" or "application confirmation" → is_job_lifecycle: true, email_type: "application_confirmation", confidence >= 0.92
 - If subject contains "update on your application" or "status of your application" or "application update" → is_job_lifecycle: true, email_type: "status_update", confidence >= 0.90
 - If subject or body contains "interview" in the context of an invitation, schedule or confirmation → is_job_lifecycle: true, email_type: "interview_invite", confidence >= 0.88
 - If subject or body contains "offer letter", "job offer", "we would like to offer", "offer of employment" → is_job_lifecycle: true, email_type: "offer", confidence >= 0.92

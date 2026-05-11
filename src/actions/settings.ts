@@ -7,6 +7,7 @@ import { recordAuditEvent } from '@/lib/security/audit'
 import { listGmailMessages } from '@/lib/gmail/client'
 import { getValidGmailAccessToken } from '@/lib/gmail/token'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getAppUrl } from '@/lib/utils/appUrl'
 
 export type NotificationPreferences = {
   email_job_updates: boolean
@@ -114,33 +115,38 @@ async function getAuthenticatedUser() {
 
   // Google OAuth users may exist in auth.users before app_users row is created.
   // Ensure profile exists so downstream FK inserts (notification_preferences, etc.) do not fail.
-  // Try with standard client first (no Service Role required)
+  const service = createServiceClient()
   const fullNameRaw = user.user_metadata?.full_name
   const fullName = typeof fullNameRaw === 'string' ? fullNameRaw : ''
   const avatarRaw = user.user_metadata?.avatar_url
   const avatarUrl = typeof avatarRaw === 'string' ? avatarRaw : null
   const referralCode = generateReferralCode(user.id)
 
-  const profileData = {
-    id: user.id,
-    full_name: fullName,
-    avatar_url: avatarUrl,
-    referral_code: referralCode,
-    updated_at: new Date().toISOString(),
-  }
-
-  const { error: profileError } = await supabase.from('app_users').upsert(
-    profileData,
+  const { error: profileError } = await service.from('app_users').upsert(
+    {
+      id: user.id,
+      full_name: fullName,
+      avatar_url: avatarUrl,
+      referral_code: referralCode,
+      updated_at: new Date().toISOString(),
+    },
     { onConflict: 'id' }
   )
 
   if (profileError) {
-    // If standard client fails (e.g. RLS issues), ONLY then try service client if available
-    try {
-      const service = createServiceClient()
-      await service.from('app_users').upsert(profileData, { onConflict: 'id' })
-    } catch (e) {
-      console.warn('[Settings] Profile upsert failed, but continuing...', profileError.message)
+    if (isMissingColumnError(profileError)) {
+      const { error: fallbackError } = await service.from('app_users').upsert(
+        {
+          id: user.id,
+          full_name: fullName,
+          avatar_url: avatarUrl,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      )
+      if (fallbackError) throw fallbackError
+    } else {
+      throw profileError
     }
   }
 
@@ -149,7 +155,7 @@ async function getAuthenticatedUser() {
 
 export async function getReferralStatus(): Promise<ReferralStatus> {
   const { supabase, user } = await getAuthenticatedUser()
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = getAppUrl()
 
   const { data: profile, error: profileError } = await supabase
     .from('app_users')
@@ -427,73 +433,6 @@ export async function getConnectionStatus(): Promise<ConnectionStatus[]> {
   })
 }
 
-export async function requestAccountDeletion() {
-  const { supabase, user } = await getAuthenticatedUser()
-  const deletionDate = new Date()
-  deletionDate.setDate(deletionDate.getDate() + 7)
-
-  const { error } = await supabase
-    .from('app_users')
-    .update({ 
-      scheduled_deletion_at: deletionDate.toISOString(),
-      updated_at: new Date().toISOString() 
-    })
-    .eq('id', user.id)
-
-  if (error) throw error
-
-  await recordAuditEvent({
-    userId: user.id,
-    eventType: 'account_deletion_requested',
-    action: 'schedule',
-    resourceType: 'app_users',
-    resourceId: user.id,
-    newValues: { scheduled_deletion_at: deletionDate.toISOString() },
-  })
-
-  return { scheduled_deletion_at: deletionDate.toISOString() }
-}
-
-export async function cancelAccountDeletion() {
-  const { supabase, user } = await getAuthenticatedUser()
-
-  const { error } = await supabase
-    .from('app_users')
-    .update({ 
-      scheduled_deletion_at: null,
-      updated_at: new Date().toISOString() 
-    })
-    .eq('id', user.id)
-
-  if (error) throw error
-
-  await recordAuditEvent({
-    userId: user.id,
-    eventType: 'account_deletion_cancelled',
-    action: 'cancel',
-    resourceType: 'app_users',
-    resourceId: user.id,
-  })
-
-  return { scheduled_deletion_at: null }
-}
-
-export async function updateTargetRoles(roles: string[]) {
-  const { supabase, user } = await getAuthenticatedUser()
-
-  const { error } = await supabase
-    .from('app_users')
-    .update({ 
-      target_roles: roles,
-      updated_at: new Date().toISOString() 
-    })
-    .eq('id', user.id)
-
-  if (error) throw error
-
-  return { target_roles: roles }
-}
-
 export async function disconnectGmail(tokenId: string) {
   const { supabase, user } = await getAuthenticatedUser()
 
@@ -578,7 +517,7 @@ export async function setUserTimezone(timezone: string) {
 export async function getAutoSyncSettings() {
   await getAuthenticatedUser()
 
-  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings/auto-sync`, {
+  const response = await fetch(`${getAppUrl()}/api/settings/auto-sync`, {
     headers: {
       cookie: (await headers()).get('cookie') || '',
     },
@@ -595,7 +534,7 @@ export async function getAutoSyncSettings() {
 export async function updateAutoSyncTime(autoSyncTime: string | null) {
   await getAuthenticatedUser()
 
-  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/settings/auto-sync`, {
+  const response = await fetch(`${getAppUrl()}/api/settings/auto-sync`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

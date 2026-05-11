@@ -12,7 +12,7 @@ export function createSyncWorker(
     },
     {
       connection: getQueueConnection(),
-      concurrency: 2,
+      concurrency: parseInt(process.env.SYNC_WORKER_CONCURRENCY || '2', 10),
     }
   )
 }

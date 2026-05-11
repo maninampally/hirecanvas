@@ -765,12 +765,15 @@ async function writeAiUsage(
 export async function processExtractionJob(payload: ExtractionJobPayload) {
   const supabase = createServiceClient()
 
-  const { data: appUser } = await supabase
+  const { data: appUser, error: appUserError } = await supabase
     .from('app_users')
     .select('tier')
     .eq('id', payload.userId)
     .maybeSingle<{ tier: 'free' | 'pro' | 'elite' | 'admin' }>()
-  const userTier = appUser?.tier || 'free'
+  if (appUserError) {
+    console.error('[extraction] Failed to fetch user tier:', appUserError.message)
+  }
+  const userTier = appUser?.tier ?? 'free'
 
   try {
     await assertWithinDailyAIBudget(payload.userId, userTier)

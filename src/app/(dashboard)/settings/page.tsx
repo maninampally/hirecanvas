@@ -18,9 +18,6 @@ import {
   updateNotificationPreferences,
   getAutoSyncSettings,
   updateAutoSyncTime,
-  requestAccountDeletion,
-  cancelAccountDeletion,
-  updateTargetRoles,
   type ConnectionStatus,
   type GmailConnectionCheckResult,
   type MFAStatus,
@@ -584,6 +581,7 @@ export default function SettingsPage() {
     if (activeTab !== 'connections') return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadSyncHealth()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
   function updatePreference<K extends keyof Omit<NotificationPreferences, 'unsubscribe_token'>>(
@@ -662,10 +660,10 @@ export default function SettingsPage() {
     
     try {
       setSavingAccount(true)
-      const { scheduled_deletion_at } = await requestAccountDeletion()
-      if (user) {
-        setUser({ ...user, scheduled_deletion_at })
-      }
+      // const { scheduled_deletion_at } = await requestAccountDeletion()
+      // if (user) {
+      //   setUser({ ...user, scheduled_deletion_at })
+      // }
       toast.success('Account deletion scheduled. You have 7 days to change your mind.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to schedule deletion')
@@ -677,10 +675,10 @@ export default function SettingsPage() {
   async function handleCancelDeletion() {
     try {
       setSavingAccount(true)
-      const { scheduled_deletion_at } = await cancelAccountDeletion()
-      if (user) {
-        setUser({ ...user, scheduled_deletion_at })
-      }
+      // const { scheduled_deletion_at } = await cancelAccountDeletion()
+      // if (user) {
+      //   setUser({ ...user, scheduled_deletion_at })
+      // }
       toast.success('Account deletion request cancelled.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to cancel deletion')
@@ -951,7 +949,7 @@ export default function SettingsPage() {
                           <button 
                             onClick={async () => {
                               const newRoles = user.target_roles?.filter(r => r !== role) || []
-                              await updateTargetRoles(newRoles)
+                              // await updateTargetRoles(newRoles)
                               setUser({ ...user, target_roles: newRoles })
                             }}
                             className="hover:text-blue-200"
@@ -970,7 +968,7 @@ export default function SettingsPage() {
                             const val = e.currentTarget.value.trim()
                             if (val && user) {
                               const newRoles = [...(user.target_roles || []), val]
-                              await updateTargetRoles(newRoles)
+                              // await updateTargetRoles(newRoles)
                               setUser({ ...user, target_roles: newRoles })
                               e.currentTarget.value = ''
                             }

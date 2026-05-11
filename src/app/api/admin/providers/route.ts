@@ -34,6 +34,11 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  const adminAllowlist = process.env.ADMIN_USER_IDS?.split(',').map((id) => id.trim()).filter(Boolean) ?? []
+  if (adminAllowlist.length > 0 && !adminAllowlist.includes(user.id)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   try {
     // If Redis is not connected, return empty provider health data for dev environment
     if (!isRedisConnected()) {

@@ -3,6 +3,7 @@ import { sendTransactionalEmail } from '@/lib/email/ses'
 import { getRedisClient } from '@/lib/redis'
 import { type NudgeJobPayload } from '@/lib/queue/nudgeQueue'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getAppUrl } from '@/lib/utils/appUrl'
 
 type OpenJob = {
   id: string
@@ -157,7 +158,7 @@ export async function processNudgeJob(payload: NudgeJobPayload) {
       if (!acquired) continue
 
       const aiResult = await generateFollowUpDraft(job, daysStale)
-      const unsubscribeUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/unsubscribe?token=${target.preference.unsubscribe_token}`
+      const unsubscribeUrl = `${getAppUrl()}/api/unsubscribe?token=${target.preference.unsubscribe_token}`
 
       const subject = `Follow-up suggestion: ${job.company} (${daysStale}d idle)`
       const html = renderNudgeHtml({

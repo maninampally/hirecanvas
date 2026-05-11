@@ -15,7 +15,7 @@ export async function runOllama(request: ProviderRequest): Promise<ProviderRespo
         throw new ProviderError('ollama', 'Prompt is required', { retryable: false })
     }
 
-    let lastError: any = null
+    let lastError: Error | null = null
     const maxRetries = 3
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -41,32 +41,32 @@ export async function runOllama(request: ProviderRequest): Promise<ProviderRespo
             clearTimeout(id)
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}))
-                throw new ProviderError('ollama', `Ollama error (${response.status}): ${errorData.error || response.statusText}`, {
+                const errorData = await response.json().catch(() => ({})) as Record<string, unknown>
+                throw new ProviderError('ollama', `Ollama error (${response.status}): ${typeof errorData.error === 'string' ? errorData.error : response.statusText}`, {
                     retryable: response.status >= 500,
                 })
             }
 
-            const payload = await response.json()
+            const payload = await response.json() as Record<string, unknown>
             return {
-                text: payload.response || '',
-                model: payload.model || model,
+                text: typeof payload.response === 'string' ? payload.response : '',
+                model: typeof payload.model === 'string' ? payload.model : model,
                 usage: {
-                    inputTokens: payload.prompt_eval_count || 0,
-                    outputTokens: payload.eval_count || 0,
-                    totalTokens: (payload.prompt_eval_count || 0) + (payload.eval_count || 0),
+                    inputTokens: typeof payload.prompt_eval_count === 'number' ? payload.prompt_eval_count : 0,
+                    outputTokens: typeof payload.eval_count === 'number' ? payload.eval_count : 0,
+                    totalTokens: (typeof payload.prompt_eval_count === 'number' ? payload.prompt_eval_count : 0) + (typeof payload.eval_count === 'number' ? payload.eval_count : 0),
                 },
             }
-        } catch (error: any) {
-            lastError = error
-            if (error.name === 'AbortError') {
+        } catch (error: unknown) {
+            lastError = error instanceof Error ? error : new Error(String(error))
+            if (error instanceof Error && error.name === 'AbortError') {
                 console.error('[Ollama] Request timed out after 10 minutes')
                 break // Don't retry timeouts
             }
 
             if (attempt < maxRetries) {
                 const delay = attempt * 2000
-                console.warn(`[Ollama] Attempt ${attempt} failed: ${error.message}. Retrying in ${delay}ms...`)
+                console.warn(`[Ollama] Attempt ${attempt} failed: ${lastError.message}. Retrying in ${delay}ms...`)
                 await new Promise(resolve => setTimeout(resolve, delay))
                 continue
             }

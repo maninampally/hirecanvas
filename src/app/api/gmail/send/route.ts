@@ -12,8 +12,9 @@ export async function POST(request: Request) {
     const body = await request.json() as { to?: string; subject?: string; body?: string }
     const { to, subject, body: emailBody } = body
 
-    if (!to || !subject) {
-      return NextResponse.json({ error: 'Missing required fields: to, subject' }, { status: 400 })
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!to || !subject || !EMAIL_RE.test(to)) {
+      return NextResponse.json({ error: 'Missing required fields: to (valid email), subject' }, { status: 400 })
     }
 
     const serviceClient = createServiceClient()

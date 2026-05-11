@@ -12,7 +12,12 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = (await request.json().catch(() => ({}))) as { confirm?: string }
+  let body: { confirm?: string } = {}
+  try {
+    body = (await request.json()) as { confirm?: string }
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
   if (body.confirm !== 'DELETE') {
     return NextResponse.json({ error: 'Confirmation text must be DELETE' }, { status: 400 })
   }
@@ -20,7 +25,7 @@ export async function DELETE(request: NextRequest) {
   const service = createServiceClient()
 
   // Best effort data cleanup for user-owned rows before removing auth user.
-  await Promise.all([
+  const cleanupResults = await Promise.allSettled([
     service.from('notifications').delete().eq('user_id', user.id),
     service.from('ai_usage').delete().eq('user_id', user.id),
     service.from('outreach').delete().eq('user_id', user.id),
@@ -30,6 +35,10 @@ export async function DELETE(request: NextRequest) {
     service.from('oauth_tokens').delete().eq('user_id', user.id),
     service.from('notification_preferences').delete().eq('user_id', user.id),
   ])
+  const cleanupFailures = cleanupResults.filter((r) => r.status === 'rejected')
+  if (cleanupFailures.length > 0) {
+    console.error('[delete-account] Partial data cleanup failure', cleanupFailures)
+  }
 
   const { error: deleteError } = await service.auth.admin.deleteUser(user.id)
   if (deleteError) {

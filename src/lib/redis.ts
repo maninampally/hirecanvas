@@ -1,7 +1,7 @@
 import IORedis from 'ioredis'
 
 export function getRedisConnectionOptions() {
-  const redisUrl = process.env.REDIS_URL
+  const redisUrl = process.env.REDIS_URL?.trim()
   if (!redisUrl) {
     throw new Error('REDIS_URL is required')
   }
@@ -65,6 +65,5 @@ export function isRedisConnected(): boolean {
   const client = globalForRedis.redisSingleton
   if (!client) return false
   const status = client.status
-  // Consider 'connecting' as connected for health checks to prevent immediate fallbacks
-  return ['ready', 'connect', 'connecting', 'reconnecting'].includes(status)
+  return ['ready', 'connect'].includes(status)
 }

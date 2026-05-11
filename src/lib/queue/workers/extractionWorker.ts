@@ -55,7 +55,8 @@ export function createExtractionWorker(
         if (error instanceof DailyAIBudgetExceededError) {
           await markDailyBudgetReached(job.data.userId, error)
           await enqueueExtractionJobWithDelay(job.data, 12 * 60 * 60 * 1000)
-          return
+          console.warn('[extraction] Budget exceeded for user:', job.data.userId, '— re-enqueued with 12h delay')
+          return // intentional: don't rethrow so BullMQ skips immediate retry
         }
         throw error
       }
