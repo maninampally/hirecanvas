@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { LogoIcon } from '@/components/brand/Logo'
 
 type StatusCount = { status: string; count: number }
 
@@ -70,9 +71,7 @@ export default async function SharedViewPage({ params }: { params: Promise<{ tok
     <div className="min-h-screen bg-[#f0fdfb] py-12 px-4">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="text-center">
-          <div className="w-10 h-10 bg-gradient-to-br from-teal-400 to-teal-600 rounded-xl flex items-center justify-center text-white font-bold mx-auto mb-3 shadow-md shadow-teal-500/30">
-            H
-          </div>
+          <LogoIcon size={40} className="mx-auto mb-3" priority />
           <h1 className="text-2xl font-bold text-slate-900">Job Search Pipeline</h1>
           <p className="text-sm text-slate-500 mt-1">Shared view — no personal data shown</p>
         </div>

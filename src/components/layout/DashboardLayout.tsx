@@ -7,6 +7,7 @@ import { UpgradeModal } from '@/components/auth/UpgradeModal'
 import { CommandPalette } from '@/components/layout/CommandPalette'
 import { NotificationCenter } from '@/components/layout/NotificationCenter'
 import { ApplicationsSidebar } from '@/components/layout/ApplicationsSidebar'
+import { SidebarLogo } from '@/components/brand/Logo'
 import { useAuthStore } from '@/stores/authStore'
 import { createClient } from '@/lib/supabase/client'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
@@ -36,6 +37,7 @@ import {
   MdCalendarMonth,
   MdBusiness,
   MdExplore,
+  MdLock,
 } from 'react-icons/md'
 
 function getNavigationSections(tier?: string) {
@@ -112,9 +114,17 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('hc:sidebar_collapsed') === 'true'
+  })
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [showMoreSheet, setShowMoreSheet] = useState(false)
+  const [closingMoreSheet, setClosingMoreSheet] = useState(false)
+  const [bannerDismissed, setBannerDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('hc:connect_banner_dismissed') === 'true'
+  })
   const [applicationsPanelCollapsed, setApplicationsPanelCollapsed] = useState(() => {
     if (typeof window === 'undefined') return true
     return window.localStorage.getItem('hc:applications_sidebar_collapsed') !== 'false'
@@ -129,6 +139,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       String(applicationsPanelCollapsed)
     )
   }, [applicationsPanelCollapsed])
+
+  useEffect(() => {
+    window.localStorage.setItem('hc:sidebar_collapsed', String(collapsed))
+  }, [collapsed])
+
+  useEffect(() => {
+    window.localStorage.setItem('hc:connect_banner_dismissed', String(bannerDismissed))
+  }, [bannerDismissed])
 
   // Close user menu on outside click
   useEffect(() => {
@@ -151,7 +169,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('keydown', handler)
   }, [])
 
-  const [bannerDismissed, setBannerDismissed] = useState(false)
   const isHomePage = pathname === '/' || pathname === '/dashboard'
   const showConnectBanner = Boolean(
     user && !user.onboarding_completed && isHomePage && !bannerDismissed
@@ -203,6 +220,19 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }
 
   const pageTitle = pathTitles[pathname] || 'Dashboard'
+  const breadcrumbParts = pathname
+    .split('?')[0]
+    .split('/')
+    .filter(Boolean)
+    .map((part) => pathTitles[`/${part}`] || part.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
+
+  const closeMoreSheet = () => {
+    setClosingMoreSheet(true)
+    window.setTimeout(() => {
+      setShowMoreSheet(false)
+      setClosingMoreSheet(false)
+    }, 180)
+  }
 
   return (
     <div className="flex h-screen bg-[#f8fafc] overflow-hidden">
@@ -219,21 +249,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         className={`${collapsed ? 'lg:w-[72px]' : 'lg:w-64'} w-72 bg-gradient-to-b from-[#ecfeff] to-[#ccfbf1] border-r border-teal-100/70 flex flex-col transition-all duration-300 ease-in-out overflow-hidden fixed lg:static inset-y-0 left-0 z-50 lg:z-auto ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Logo */}
-        <div className="p-4 border-b border-teal-100/70 flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md shadow-teal-500/30">
-            H
-          </div>
-          {!collapsed && (
-            <span className="text-base font-bold text-slate-800 tracking-tight">
-              HireCanvas
-            </span>
-          )}
+        <div className="border-b border-teal-100/70 p-4">
+          <SidebarLogo collapsed={collapsed} />
         </div>
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-2">
-          {getNavigationSections(user?.tier).map((section) => (
-            <div key={section.title}>
+          {getNavigationSections(user?.tier).map((section, sectionIndex) => (
+            <div key={section.title} className={sectionIndex > 0 ? 'mt-2 border-t border-teal-100/70 pt-2' : ''}>
               {!collapsed && (
                 <p className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.07em] mb-1 px-3">
                   {section.title}
@@ -283,9 +306,18 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/60 cursor-pointer transition-colors"
             onClick={(e) => { e.stopPropagation(); setShowUserMenu(!showUserMenu) }}
           >
-            <div className="w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-sm">
-              {user?.email?.charAt(0).toUpperCase() || 'U'}
-            </div>
+            {user?.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={user.avatar_url}
+                alt={user?.full_name || 'User avatar'}
+                className="h-9 w-9 rounded-full object-cover border border-teal-100/70 flex-shrink-0"
+              />
+            ) : (
+              <div className="w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-sm">
+                {user?.email?.charAt(0).toUpperCase() || 'U'}
+              </div>
+            )}
             {!collapsed && (
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-800 truncate">
@@ -313,6 +345,18 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               </button>
               <h1 className="text-lg font-bold text-slate-900 tracking-tight">{pageTitle}</h1>
             </div>
+            {breadcrumbParts.length > 1 && (
+              <div className="mt-1 hidden sm:flex items-center text-xs text-slate-400">
+                {breadcrumbParts.map((part, index) => (
+                  <React.Fragment key={`${part}-${index}`}>
+                    {index > 0 && <MdChevronRight className="mx-1 text-slate-300" />}
+                    <span className={index === breadcrumbParts.length - 1 ? 'text-slate-500 font-medium' : ''}>
+                      {part}
+                    </span>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -343,8 +387,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 onClick={() => setShowUpgradeModal(true)}
                 className="flex items-center gap-2 h-9 px-3.5 rounded-xl text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors"
               >
-                <MdSync className="text-base" />
-                <span className="hidden md:inline">Upgrade</span>
+                <MdLock className="text-base" />
+                <span className="hidden md:inline">Unlock Sync</span>
               </button>
             )}
 
@@ -371,7 +415,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               aria-label={applicationsPanelCollapsed ? 'Show applications sidebar' : 'Hide applications sidebar'}
             >
               <MdViewSidebar className="text-base" />
-              {applicationsPanelCollapsed ? 'Show Panel' : 'Hide Panel'}
+              <span className="hidden 2xl:inline">{applicationsPanelCollapsed ? 'Show Panel' : 'Hide Panel'}</span>
             </button>
 
             {/* User Menu */}
@@ -380,7 +424,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 className="w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm hover:shadow-md hover:shadow-teal-500/20 transition-all duration-200"
               >
-                {user?.email?.charAt(0).toUpperCase() || 'U'}
+                {user?.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={user.avatar_url}
+                    alt={user?.full_name || 'User avatar'}
+                    className="h-9 w-9 rounded-full object-cover"
+                  />
+                ) : (
+                  <>{user?.email?.charAt(0).toUpperCase() || 'U'}</>
+                )}
               </button>
 
               {showUserMenu && (
@@ -451,9 +504,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="fixed bottom-0 inset-x-0 z-30 lg:hidden border-t border-slate-200 bg-white/95 backdrop-blur-sm px-2 py-2">
-          <div className="grid grid-cols-6 gap-1 text-[11px]">
+          <div className="grid grid-cols-7 gap-1 text-[11px]">
             {[
               { href: '/dashboard', label: 'Dashboard', icon: MdDashboard },
+              { href: '/discover', label: 'Discover', icon: MdExplore },
               { href: '/applications', label: 'Jobs', icon: MdWork },
               { href: '/contacts', label: 'Contacts', icon: MdPeople },
               { href: '/reminders', label: 'Reminders', icon: MdNotifications },
@@ -475,7 +529,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             })}
             <button
               type="button"
-              onClick={() => setShowMoreSheet(true)}
+              onClick={() => {
+                setClosingMoreSheet(false)
+                setShowMoreSheet(true)
+              }}
               className={`flex flex-col items-center justify-center rounded-lg py-1.5 ${showMoreSheet ? 'text-teal-600 bg-teal-50' : 'text-slate-500'}`}
             >
               <MdMoreHoriz className="text-base" />
@@ -486,8 +543,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
         {showMoreSheet && (
           <>
-            <button className="fixed inset-0 z-40 bg-black/35 lg:hidden" onClick={() => setShowMoreSheet(false)} />
-            <div className="fixed bottom-0 inset-x-0 z-50 lg:hidden bg-white rounded-t-2xl border-t border-slate-200 px-4 pb-6 pt-3 animate-slide-up">
+            <button className="fixed inset-0 z-40 bg-black/35 lg:hidden" onClick={closeMoreSheet} />
+            <div className={`fixed bottom-0 inset-x-0 z-50 lg:hidden bg-white rounded-t-2xl border-t border-slate-200 px-4 pb-6 pt-3 ${closingMoreSheet ? 'animate-slide-down' : 'animate-slide-up'}`}>
               <div className="w-10 h-1 rounded-full bg-slate-300 mx-auto mb-4" />
               <div className="grid grid-cols-3 gap-3">
                 {[
@@ -504,7 +561,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    onClick={() => setShowMoreSheet(false)}
+                    onClick={closeMoreSheet}
                     className="flex flex-col items-center gap-1.5 p-3 rounded-xl hover:bg-slate-50 text-slate-600"
                   >
                     <item.icon className="text-xl" />

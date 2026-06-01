@@ -13,6 +13,8 @@ import {
   getUserSessions,
   revokeSession,
   saveMFAStatus,
+  requestAccountDeletion,
+  cancelAccountDeletion,
   setUserTimezone,
   updateAccountProfile,
   updateNotificationPreferences,
@@ -35,6 +37,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { PageHeader } from '@/components/ui/page-header'
 import { Badge } from '@/components/ui/badge'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from 'sonner'
 import {
   MdPerson,
@@ -131,6 +134,7 @@ export default function SettingsPage() {
   const [mfaStatus, setMfaStatus] = useState<MFAStatus>({ is_enabled: false, backup_codes: [] })
   const [loadingSecurityData, setLoadingSecurityData] = useState(true)
   const [mfaQrCode, setMfaQrCode] = useState<string | null>(null)
+  const [mfaSecretKey, setMfaSecretKey] = useState<string | null>(null)
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null)
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null)
   const [mfaCode, setMfaCode] = useState('')
@@ -151,7 +155,7 @@ export default function SettingsPage() {
   const [providerHealth, setProviderHealth] = useState<AIProviderHealth[]>([])
   const [loadingSyncHealth, setLoadingSyncHealth] = useState(false)
   const [syncHealthError, setSyncHealthError] = useState<string | null>(null)
-  const [providerKeys, setProviderKeys] = useState<{ gemini: boolean[]; openai: boolean[]; claude: boolean[]; ollama: boolean[]; } | null>(null)
+  const [providerKeys, setProviderKeys] = useState<{ gemini: boolean[]; openai: boolean[]; claude: boolean[]; memzent: boolean[]; ollama: boolean[]; } | null>(null)
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
   const [onboardingBusy, setOnboardingBusy] = useState(false)
   const [referralStatus, setReferralStatus] = useState<ReferralStatus | null>(null)
@@ -160,6 +164,8 @@ export default function SettingsPage() {
   const [loadingAutoSync, setLoadingAutoSync] = useState(false)
   const [savingAutoSync, setSavingAutoSync] = useState(false)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
   function describeDevice(userAgent: string | null) {
     if (!userAgent) return 'Unknown device'
@@ -467,6 +473,13 @@ export default function SettingsPage() {
       setMfaFactorId(factorId)
       setMfaChallengeId(challengeData?.id || null)
       setMfaQrCode(qrCode)
+      try {
+        const parsed = new URL(qrCode)
+        const secret = parsed.searchParams.get('secret')
+        setMfaSecretKey(secret)
+      } catch {
+        setMfaSecretKey(null)
+      }
       toast.success('Scan the QR code and enter a verification code')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to start MFA enrollment')
@@ -494,6 +507,7 @@ export default function SettingsPage() {
       const updated = await saveMFAStatus({ is_enabled: true })
       setMfaStatus(updated)
       setMfaQrCode(null)
+      setMfaSecretKey(null)
       setMfaFactorId(null)
       setMfaChallengeId(null)
       setMfaCode('')
@@ -519,6 +533,7 @@ export default function SettingsPage() {
       const updated = await saveMFAStatus({ is_enabled: false, backup_codes: [] })
       setMfaStatus(updated)
       setMfaQrCode(null)
+      setMfaSecretKey(null)
       setMfaFactorId(null)
       setMfaChallengeId(null)
       setMfaCode('')
@@ -655,15 +670,12 @@ export default function SettingsPage() {
   }
 
   async function handleDeleteAccount() {
-    const confirmText = window.prompt('Type DELETE to schedule your account for permanent deletion in 7 days.')
-    if (confirmText !== 'DELETE') return
-    
     try {
       setSavingAccount(true)
-      // const { scheduled_deletion_at } = await requestAccountDeletion()
-      // if (user) {
-      //   setUser({ ...user, scheduled_deletion_at })
-      // }
+      const { scheduled_deletion_at } = await requestAccountDeletion()
+      if (user) {
+        setUser({ ...user, scheduled_deletion_at })
+      }
       toast.success('Account deletion scheduled. You have 7 days to change your mind.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to schedule deletion')
@@ -675,10 +687,10 @@ export default function SettingsPage() {
   async function handleCancelDeletion() {
     try {
       setSavingAccount(true)
-      // const { scheduled_deletion_at } = await cancelAccountDeletion()
-      // if (user) {
-      //   setUser({ ...user, scheduled_deletion_at })
-      // }
+      const { scheduled_deletion_at } = await cancelAccountDeletion()
+      if (user) {
+        setUser({ ...user, scheduled_deletion_at })
+      }
       toast.success('Account deletion request cancelled.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to cancel deletion')
@@ -738,7 +750,8 @@ export default function SettingsPage() {
       <PageHeader title="Settings" description="Manage your account and preferences" />
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-slate-100/80 rounded-xl w-fit">
+      <div className="w-full overflow-x-auto">
+        <div className="flex gap-1 p-1 bg-slate-100/80 rounded-xl w-max min-w-full sm:min-w-0 sm:w-fit">
         {tabs.map((tab) => {
           const Icon = tab.icon
           return (
@@ -755,6 +768,7 @@ export default function SettingsPage() {
             </button>
           )
         })}
+        </div>
       </div>
 
       <div className="animate-fade-in">
@@ -1020,7 +1034,10 @@ export default function SettingsPage() {
                         size="sm" 
                         variant="outline" 
                         className="text-rose-600 border-rose-200 hover:bg-rose-50"
-                        onClick={() => void handleDeleteAccount()}
+                        onClick={() => {
+                          setDeleteConfirmText('')
+                          setShowDeleteDialog(true)
+                        }}
                         disabled={savingAccount}
                       >
                         Delete My Account
@@ -1088,6 +1105,18 @@ export default function SettingsPage() {
                       unoptimized
                       className="rounded-lg border border-slate-200 bg-white p-2"
                     />
+                    {mfaSecretKey && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(mfaSecretKey)
+                          toast.success('MFA secret key copied')
+                        }}
+                        className="text-xs text-teal-700 hover:text-teal-800 underline underline-offset-2"
+                      >
+                        QR not loading? Copy secret key
+                      </button>
+                    )}
                     <div className="flex items-center gap-2">
                       <Input
                         placeholder="Enter 6-digit code"
@@ -1483,6 +1512,7 @@ export default function SettingsPage() {
                     { label: 'Gemini', keys: providerKeys.gemini, names: ['GEMINI_API_KEY', 'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3', 'GEMINI_API_KEY_4'] },
                     { label: 'OpenAI', keys: providerKeys.openai, names: ['OPENAI_API_KEY', 'OPENAI_API_KEY_4'] },
                     { label: 'Claude', keys: providerKeys.claude, names: ['ANTHROPIC_API_KEY'] },
+                    { label: 'Memzent', keys: providerKeys.memzent, names: ['MEMZENT_API_KEY'] },
                     { label: 'Ollama', keys: providerKeys.ollama, names: ['OLLAMA_API_URL', 'OLLAMA_MODEL'] },
                   ] as const).map(({ label, keys, names }) => (
                     <div key={label} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
@@ -1504,6 +1534,28 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={showDeleteDialog}
+        title="Schedule account deletion?"
+        description='Type DELETE below to schedule your account for permanent deletion in 7 days.'
+        confirmLabel="Schedule Deletion"
+        isLoading={savingAccount}
+        confirmDisabled={deleteConfirmText !== 'DELETE'}
+        onCancel={() => {
+          if (!savingAccount) setShowDeleteDialog(false)
+        }}
+        onConfirm={() => {
+          void handleDeleteAccount()
+          setShowDeleteDialog(false)
+        }}
+      >
+        <Input
+          value={deleteConfirmText}
+          onChange={(event) => setDeleteConfirmText(event.target.value)}
+          placeholder="Type DELETE"
+          autoFocus
+        />
+      </ConfirmDialog>
     </div>
   )
 }

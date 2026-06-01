@@ -53,7 +53,11 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 ARG CACHEBUST
 RUN echo "worker-runner CACHEBUST=${CACHEBUST:-}"
-COPY . .
+# Copy only the sources required by tsx workers to avoid shipping full repo.
+COPY package*.json ./
+COPY tsconfig.json ./
+COPY src ./src
+COPY scripts ./scripts
 # Ensure .env.local exists so tsx --env-file=.env.local doesn't crash.
 # In Docker all env vars come from Compose; this file is intentionally empty.
 RUN touch .env.local

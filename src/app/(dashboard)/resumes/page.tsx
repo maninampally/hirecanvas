@@ -29,6 +29,7 @@ export default function ResumesPage() {
 
   const [preview, setPreview] = useState<{ url: string; fileName: string; mimeType: string } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
 
   async function loadResumes() {
     setIsLoading(true)
@@ -175,6 +176,12 @@ export default function ResumesPage() {
 
   const libraryCount = items.filter((r) => r.kind === 'library').length
   const jobCount = items.filter((r) => r.kind === 'job').length
+  const libraryItems = items.filter(
+    (r): r is Extract<UnifiedResumeRow, { kind: 'library' }> => r.kind === 'library'
+  )
+  const jobItems = items.filter(
+    (r): r is Extract<UnifiedResumeRow, { kind: 'job' }> => r.kind === 'job'
+  )
 
   return (
     <div className="space-y-6">
@@ -197,7 +204,7 @@ export default function ResumesPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <a href="#ats-checker">
-            <Button variant="outline">ATS Checker</Button>
+            <Button variant="outline">ATS Checker ↓ below</Button>
           </a>
           <Link href="/resumes/cover-letter">
             <Button variant="outline">AI Cover Letter</Button>
@@ -221,6 +228,26 @@ export default function ResumesPage() {
       {error && (
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
       )}
+
+      <div
+        className={`rounded-xl border-2 border-dashed p-5 text-center transition-colors ${
+          isDragOver ? 'border-teal-400 bg-teal-50/70' : 'border-slate-200 bg-slate-50/60'
+        }`}
+        onDragOver={(event) => {
+          event.preventDefault()
+          setIsDragOver(true)
+        }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={(event) => {
+          event.preventDefault()
+          setIsDragOver(false)
+          const file = event.dataTransfer.files?.[0]
+          if (file) void handleUpload(file)
+        }}
+      >
+        <p className="text-sm font-medium text-slate-700">Drag and drop your resume here</p>
+        <p className="text-xs text-slate-500 mt-1">PDF, DOC, or DOCX. You can also use the Upload Resume button above.</p>
+      </div>
 
       <Card>
         <CardContent className="pt-6">
@@ -274,42 +301,37 @@ export default function ResumesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {items.map((row) => (
+                  {libraryItems.length > 0 && (
+                    <tr className="bg-slate-50">
+                      <td colSpan={5} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Library Resumes
+                      </td>
+                    </tr>
+                  )}
+                  {libraryItems.map((row) => (
                     <tr key={`${row.kind}-${row.id}`} className="bg-white hover:bg-slate-50/80">
                       <td className="px-4 py-3 align-top">
                         <p className="font-medium text-slate-900">{rowLabel(row)}</p>
-                        {row.kind === 'library' ? (
-                          <p className="mt-0.5 text-xs text-slate-500">Version {row.version}</p>
-                        ) : (
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {row.job_company} — {row.job_title}
-                          </p>
-                        )}
+                        <p className="mt-0.5 text-xs text-slate-500">Version {row.version}</p>
                       </td>
                       <td className="px-4 py-3 align-top">
-                        {row.kind === 'library' ? (
-                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                            Library
-                          </span>
-                        ) : (
-                          <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800">
-                            Application
-                          </span>
-                        )}
+                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                          Library
+                        </span>
                       </td>
                       <td className="px-4 py-3 align-top text-slate-600">
-                        <span className="block">{formatSize(row.kind === 'library' ? row.file_size : row.file_size)}</span>
+                        <span className="block">{formatSize(row.file_size)}</span>
                         <span className="text-xs text-slate-400">{rowMime(row)}</span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-600">{rowDate(row)}</td>
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-wrap justify-end gap-2">
-                          {row.kind === 'library' && row.is_default && (
+                          {row.is_default && (
                             <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-700">
                               Default
                             </span>
                           )}
-                          {row.kind === 'library' && !row.is_default && (
+                          {!row.is_default && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -336,8 +358,66 @@ export default function ResumesPage() {
                             Download
                           </Button>
                           <Button
-                            variant="destructive"
+                            variant="ghost"
                             size="sm"
+                            className="text-rose-600 hover:bg-rose-50"
+                            onClick={() => setConfirmDelete({ kind: row.kind, id: row.id })}
+                            disabled={pendingActionId === row.id}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {jobItems.length > 0 && (
+                    <tr className="bg-slate-50">
+                      <td colSpan={5} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Application Resumes
+                      </td>
+                    </tr>
+                  )}
+                  {jobItems.map((row) => (
+                    <tr key={`${row.kind}-${row.id}`} className="bg-white hover:bg-slate-50/80">
+                      <td className="px-4 py-3 align-top">
+                        <p className="font-medium text-slate-900">{rowLabel(row)}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {row.job_company} — {row.job_title}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800">
+                          Application
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 align-top text-slate-600">
+                        <span className="block">{formatSize(row.file_size)}</span>
+                        <span className="text-xs text-slate-400">{rowMime(row)}</span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top text-slate-600">{rowDate(row)}</td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleView(row)}
+                            disabled={previewLoading || pendingActionId === row.id}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleDownloadRow(row)}
+                            disabled={pendingActionId === row.id}
+                          >
+                            Download
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-rose-600 hover:bg-rose-50"
                             onClick={() => setConfirmDelete({ kind: row.kind, id: row.id })}
                             disabled={pendingActionId === row.id}
                           >

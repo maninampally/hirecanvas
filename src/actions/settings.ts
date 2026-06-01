@@ -550,3 +550,66 @@ export async function updateAutoSyncTime(autoSyncTime: string | null) {
 
   return response.json() as Promise<{ success: boolean; auto_sync_time: string | null }>
 }
+
+export async function requestAccountDeletion() {
+  const { supabase, user } = await getAuthenticatedUser()
+  const scheduledDeletionAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+  const { data, error } = await supabase
+    .from('app_users')
+    .update({
+      scheduled_deletion_at: scheduledDeletionAt,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', user.id)
+    .select('scheduled_deletion_at')
+    .single<{ scheduled_deletion_at: string | null }>()
+
+  if (error) throw error
+
+  await recordAuditEvent({
+    userId: user.id,
+    eventType: 'account_deletion_requested',
+    action: 'schedule_deletion',
+    resourceType: 'app_users',
+    resourceId: user.id,
+    newValues: {
+      scheduled_deletion_at: data.scheduled_deletion_at,
+    },
+  })
+
+  return {
+    scheduled_deletion_at: data.scheduled_deletion_at,
+  }
+}
+
+export async function cancelAccountDeletion() {
+  const { supabase, user } = await getAuthenticatedUser()
+
+  const { data, error } = await supabase
+    .from('app_users')
+    .update({
+      scheduled_deletion_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', user.id)
+    .select('scheduled_deletion_at')
+    .single<{ scheduled_deletion_at: string | null }>()
+
+  if (error) throw error
+
+  await recordAuditEvent({
+    userId: user.id,
+    eventType: 'account_deletion_cancelled',
+    action: 'cancel_deletion',
+    resourceType: 'app_users',
+    resourceId: user.id,
+    newValues: {
+      scheduled_deletion_at: data.scheduled_deletion_at,
+    },
+  })
+
+  return {
+    scheduled_deletion_at: data.scheduled_deletion_at,
+  }
+}

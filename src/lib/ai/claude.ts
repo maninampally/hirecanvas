@@ -1,6 +1,6 @@
 import { ProviderError, type ProviderRequest, type ProviderResponse } from '@/lib/ai/gemini'
 
-const DEFAULT_CLAUDE_MODEL = 'claude-3-5-haiku-latest'
+const DEFAULT_CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
 
 function isQuotaError(statusCode: number | undefined, text: string) {
   const lower = text.toLowerCase()

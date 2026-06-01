@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Manrope, Sora } from 'next/font/google'
 import { Toaster } from 'sonner'
+import { BackToTopButton } from '@/components/ui/BackToTopButton'
 import "./globals.css";
 
 const manrope = Manrope({
@@ -49,10 +50,10 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   icons: {
     icon: [
-      { url: '/icon.png', sizes: '192x192', type: 'image/png' },
-      { url: '/apple-icon.png', sizes: '512x512', type: 'image/png' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
     ],
-    apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
+    apple: [{ url: '/apple-icon.png', sizes: '512x512', type: 'image/png' }],
   },
   appleWebApp: {
     capable: true,
@@ -78,7 +79,8 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-[#f8fafc] font-sans">
         {children}
-        <Toaster position="top-right" richColors />
+        <BackToTopButton />
+        <Toaster position="bottom-right" richColors />
         <script
           dangerouslySetInnerHTML={{
             __html: `

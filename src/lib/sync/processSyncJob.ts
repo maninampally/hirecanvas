@@ -64,6 +64,65 @@ function hashEmailContent(fromAddress: string, subject: string, body: string) {
     .digest('hex')
 }
 
+type SyncFetchedMessage = {
+  messageRef: { id: string; threadId?: string }
+  message: Awaited<ReturnType<typeof getGmailMessage>>
+  fromAddress: string
+  subject: string
+  toAddress: string | null
+  ccAddress: string | null
+  bccAddress: string | null
+  body: string
+  snippet: string
+  receivedAtIso: string
+  receivedAtMs: number
+  contentHash: string
+  emailDirection: ReturnType<typeof inferEmailDirection>
+  gmailThreadId: string | null
+  labels: string[]
+  fromIsAts: boolean
+}
+
+/** True when another row (DB or earlier in this batch) shares the same content hash. */
+function isDuplicateContentHash(
+  gmailMessageId: string,
+  contentHash: string,
+  existingByHash: Map<string, Set<string>>,
+  seenInBatch: Map<string, string>
+) {
+  const existing = existingByHash.get(contentHash)
+  if (existing) {
+    for (const id of existing) {
+      if (id !== gmailMessageId) return true
+    }
+  }
+  const firstInBatch = seenInBatch.get(contentHash)
+  if (firstInBatch && firstInBatch !== gmailMessageId) return true
+  return false
+}
+
+async function loadExistingContentHashesByHash(
+  userId: string,
+  hashes: string[]
+): Promise<Map<string, Set<string>>> {
+  const map = new Map<string, Set<string>>()
+  if (hashes.length === 0) return map
+
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('processed_emails')
+    .select('content_hash, gmail_message_id')
+    .eq('user_id', userId)
+    .in('content_hash', hashes)
+
+  for (const row of data || []) {
+    if (!row.content_hash) continue
+    if (!map.has(row.content_hash)) map.set(row.content_hash, new Set())
+    map.get(row.content_hash)!.add(row.gmail_message_id)
+  }
+  return map
+}
+
 async function getLatestSyncStatusRow(userId: string) {
   const supabase = createServiceClient()
   const { data } = await supabase
@@ -373,7 +432,7 @@ export async function processSyncJob(payload: SyncJobPayload) {
 
           const fetchBatch = pendingRefs.slice(i, i + SYNC_MESSAGE_FETCH_CHUNK)
 
-          const results = await Promise.all(
+          const fetchResults = await Promise.all(
             fetchBatch.map(async (messageRef) => {
               try {
                 const message = await getGmailMessage(accessToken, messageRef.id)
@@ -388,20 +447,85 @@ export async function processSyncJob(payload: SyncJobPayload) {
                   ? new Date(Number(message.internalDate)).toISOString()
                   : new Date().toISOString()
                 const receivedAtMs = Date.parse(receivedAtIso)
-                if (Number.isFinite(receivedAtMs)) {
-                  if (oldestProcessedAtMs === null || receivedAtMs < oldestProcessedAtMs) {
-                    oldestProcessedAtMs = receivedAtMs
-                  }
-                }
                 const contentHash = hashEmailContent(fromAddress || 'unknown', subject || '', body)
                 const emailDirection = inferEmailDirection({ from: fromAddress, userEmail })
                 const gmailThreadId = message.threadId || messageRef.threadId || null
                 const labels = message.labelIds || []
                 const fromIsAts = isAtsSender(fromAddress)
+
+                return {
+                  ok: true as const,
+                  item: {
+                    messageRef,
+                    message,
+                    fromAddress,
+                    subject,
+                    toAddress,
+                    ccAddress,
+                    bccAddress,
+                    body,
+                    snippet,
+                    receivedAtIso,
+                    receivedAtMs,
+                    contentHash,
+                    emailDirection,
+                    gmailThreadId,
+                    labels,
+                    fromIsAts,
+                  } satisfies SyncFetchedMessage,
+                }
+              } catch (err) {
+                console.error('Sync message fetch failed:', err)
+                return { ok: false as const }
+              }
+            })
+          )
+
+          const fetched: SyncFetchedMessage[] = []
+          for (const result of fetchResults) {
+            if (!result.ok) continue
+            const item = result.item
+            if (Number.isFinite(item.receivedAtMs)) {
+              if (oldestProcessedAtMs === null || item.receivedAtMs < oldestProcessedAtMs) {
+                oldestProcessedAtMs = item.receivedAtMs
+              }
+            }
+            fetched.push(item)
+          }
+
+          const hashCandidates = fetched.filter((item) => {
+            if (item.emailDirection === 'outbound') return false
+            if (!item.fromIsAts && item.labels.some((l) => NOISY_GMAIL_LABELS.has(l))) return false
+            if (!item.fromIsAts && item.body.length > BODY_NOISE_THRESHOLD_BYTES) return false
+            return true
+          })
+          const uniqueHashes = [...new Set(hashCandidates.map((item) => item.contentHash))]
+          const existingByHash = payload.force
+            ? new Map<string, Set<string>>()
+            : await loadExistingContentHashesByHash(payload.userId, uniqueHashes)
+          const seenInBatch = new Map<string, string>()
+
+          const results = await Promise.all(
+            fetched.map(async (item) => {
+              try {
+                const {
+                  message,
+                  fromAddress,
+                  subject,
+                  toAddress,
+                  ccAddress,
+                  bccAddress,
+                  body,
+                  snippet,
+                  receivedAtIso,
+                  contentHash,
+                  emailDirection,
+                  gmailThreadId,
+                  labels,
+                  fromIsAts,
+                } = item
                 const envelope = { toAddress, ccAddress, bccAddress, snippet, receivedAt: receivedAtIso }
 
-                // Skip emails the user sent — cover letters, follow-ups, thank-you notes
-                // all contain job keywords but are outbound, not incoming status updates.
                 if (emailDirection === 'outbound') {
                   await markAutoRejected({
                     userId: payload.userId,
@@ -416,8 +540,6 @@ export async function processSyncJob(payload: SyncJobPayload) {
                   return { processed: true }
                 }
 
-                // Gmail category skip — Promotions/Social/Forums tabs almost
-                // never carry lifecycle mail. ATS senders bypass.
                 if (!fromIsAts && labels.some((l) => NOISY_GMAIL_LABELS.has(l))) {
                   await markAutoRejected({
                     userId: payload.userId,
@@ -432,9 +554,6 @@ export async function processSyncJob(payload: SyncJobPayload) {
                   return { processed: true }
                 }
 
-                // Body-size pre-filter — emails >50 KB are nearly always HTML
-                // newsletters/digests. ATS senders are exempt because Workday
-                // offer letters can be large.
                 if (!fromIsAts && body.length > BODY_NOISE_THRESHOLD_BYTES) {
                   await markAutoRejected({
                     userId: payload.userId,
@@ -449,16 +568,10 @@ export async function processSyncJob(payload: SyncJobPayload) {
                   return { processed: true }
                 }
 
-                // Content-hash dedupe (skip reprocessing identical emails unless forced).
-                const { data: duplicateByContent } = await supabase
-                  .from('processed_emails')
-                  .select('gmail_message_id')
-                  .eq('user_id', payload.userId)
-                  .eq('content_hash', contentHash)
-                  .neq('gmail_message_id', message.id)
-                  .maybeSingle<{ gmail_message_id: string }>()
-
-                if (duplicateByContent && !payload.force) {
+                if (
+                  !payload.force &&
+                  isDuplicateContentHash(message.id, contentHash, existingByHash, seenInBatch)
+                ) {
                   await markAutoRejected({
                     userId: payload.userId,
                     gmailMessageId: message.id,
@@ -471,8 +584,8 @@ export async function processSyncJob(payload: SyncJobPayload) {
                   })
                   return { processed: true }
                 }
+                seenInBatch.set(contentHash, message.id)
 
-                // Fast-skip — cheap regex layer with always-pass override.
                 const fastSkip = shouldFastSkip({ subject, from: fromAddress, snippet })
                 if (fastSkip.skip) {
                   await markAutoRejected({
@@ -508,9 +621,6 @@ export async function processSyncJob(payload: SyncJobPayload) {
 
                 try {
                   await enqueueExtractionJob(extractionPayload)
-                  // Job is queued — extraction happens async in the worker.
-                  // We track real counts via processed_emails.review_status='auto_accepted'
-                  // queried separately in the sync status API, not via this counter.
                   return { processed: true }
                 } catch (queueError) {
                   if (process.env.NODE_ENV !== 'production') {

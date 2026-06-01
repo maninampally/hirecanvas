@@ -63,11 +63,10 @@ export function createExtractionWorker(
     },
     {
       connection: getQueueConnection(),
-      concurrency: 8,
-      // Paid keys: Gemini 1000 RPM, OpenAI 500 RPM, Haiku 50 RPM.
-      // 8 concurrency × 3 LLM calls × 20/min = ~160 calls/min — well within limits.
+      concurrency: 4,
+      // 4 workers × 3 LLM stages — keeps Gemini free/paid tiers under burst limits during sync.
       limiter: {
-        max: 20,
+        max: 12,
         duration: 60_000,
       },
     }

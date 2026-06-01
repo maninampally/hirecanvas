@@ -19,7 +19,7 @@ html {
 
 body {
   background-color: #f8fafc;
-  color: #134e4a;
+  color: #1e293b;
 }
 
 h1,
@@ -131,6 +131,7 @@ h6 {
 .delay-100 { animation-delay: 100ms; }
 .delay-150 { animation-delay: 150ms; }
 .delay-200 { animation-delay: 200ms; }
+.delay-250 { animation-delay: 250ms; }
 .delay-300 { animation-delay: 300ms; }
 .delay-400 { animation-delay: 400ms; }
 .delay-500 { animation-delay: 500ms; }
@@ -184,5 +185,5 @@ h6 {
 *:focus-visible {
   outline: 2px solid #14b8a6;
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: inherit;
 }

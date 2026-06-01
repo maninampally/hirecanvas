@@ -2,7 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { runWithLLMRouter } from '@/lib/ai/llmRouter'
 
-function restoreEnvVar(key: 'GEMINI_API_KEY' | 'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY', value: string | undefined) {
+function restoreEnvVar(
+  key: 'GEMINI_API_KEY' | 'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY' | 'MEMZENT_API_KEY',
+  value: string | undefined
+) {
   if (value === undefined) {
     delete process.env[key]
   } else {
@@ -15,11 +18,13 @@ test('llm router returns regex fallback when no provider keys configured', async
     gemini: process.env.GEMINI_API_KEY,
     claude: process.env.ANTHROPIC_API_KEY,
     openai: process.env.OPENAI_API_KEY,
+    memzent: process.env.MEMZENT_API_KEY,
   }
 
   delete process.env.GEMINI_API_KEY
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.OPENAI_API_KEY
+  delete process.env.MEMZENT_API_KEY
 
   try {
     const result = await runWithLLMRouter({
@@ -28,11 +33,12 @@ test('llm router returns regex fallback when no provider keys configured', async
     })
 
     assert.equal(result.provider, 'regex_fallback')
-    assert.equal(result.fallbackCount, 3)
+    assert.equal(result.fallbackCount, 4)
   } finally {
     restoreEnvVar('GEMINI_API_KEY', previous.gemini)
     restoreEnvVar('ANTHROPIC_API_KEY', previous.claude)
     restoreEnvVar('OPENAI_API_KEY', previous.openai)
+    restoreEnvVar('MEMZENT_API_KEY', previous.memzent)
   }
 })
 
@@ -42,11 +48,13 @@ test('llm router fails over from gemini to claude', async () => {
     gemini: process.env.GEMINI_API_KEY,
     claude: process.env.ANTHROPIC_API_KEY,
     openai: process.env.OPENAI_API_KEY,
+    memzent: process.env.MEMZENT_API_KEY,
   }
 
   process.env.GEMINI_API_KEY = 'test-gemini'
   process.env.ANTHROPIC_API_KEY = 'test-claude'
   delete process.env.OPENAI_API_KEY
+  delete process.env.MEMZENT_API_KEY
 
   let geminiCalled = 0
   let claudeCalled = 0
@@ -96,5 +104,6 @@ test('llm router fails over from gemini to claude', async () => {
     restoreEnvVar('GEMINI_API_KEY', previous.gemini)
     restoreEnvVar('ANTHROPIC_API_KEY', previous.claude)
     restoreEnvVar('OPENAI_API_KEY', previous.openai)
+    restoreEnvVar('MEMZENT_API_KEY', previous.memzent)
   }
 })

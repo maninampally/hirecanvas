@@ -5,7 +5,7 @@ import { getRedisClient, isRedisConnected } from '@/lib/redis'
 
 export const dynamic = 'force-dynamic'
 
-const PROVIDERS = ['gemini', 'openai', 'claude']
+const PROVIDERS = ['gemini', 'openai', 'claude', 'memzent']
 
 function parseEpoch(rawValue: string | undefined) {
   const value = Number(rawValue || '0')

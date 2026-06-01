@@ -28,15 +28,16 @@ import { SalaryAnalytics } from '@/components/dashboard/SalaryAnalytics'
 import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeletons'
 import { Badge } from '@/components/ui/badge'
 import { DateInput } from '@/components/ui/date-input'
+import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncStatus } from '@/hooks/useSyncStatus'
 import { getStatusVariant } from '@/lib/statusBadge'
+import { getOnboardingState, setOnboardingCompleted, type OnboardingState } from '@/actions/onboarding'
 import {
   MdWork,
   MdHandshake,
   MdStarRate,
   MdClose,
-  MdPeople,
   MdOutlineEmail,
   MdDescription,
   MdQuiz,
@@ -49,7 +50,8 @@ import {
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
-  const { status: syncStatus, syncInProgress, extractionInProgress, queueStatus, isBusy } = useSyncStatus(user?.id)
+  const { status: syncStatus, syncInProgress, extractionInProgress, queueStatus, isBusy } =
+    useSyncStatus(user?.id)
   const [isLoading, setIsLoading] = useState(true)
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null)
   const [analyticsError, setAnalyticsError] = useState<string | null>(null)
@@ -65,6 +67,17 @@ export default function DashboardPage() {
   const [syncToDate, setSyncToDate] = useState('')
   const [syncRangePreset, setSyncRangePreset] = useState<'custom' | 'last7' | 'last30' | 'thisMonth'>('custom')
   const [isStoppingSync, setIsStoppingSync] = useState(false)
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false)
+  const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
+  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return window.localStorage.getItem('hc:dashboard_onboarding_dismissed') === 'true'
+    } catch {
+      return false
+    }
+  })
+  const [activityNowMs] = useState(() => Date.now())
 
   const toDateInput = (date: Date) => {
     const y = date.getFullYear()
@@ -190,6 +203,22 @@ export default function DashboardPage() {
     })
   }, [extractionInProgress, loadDashboardData])
 
+  useEffect(() => {
+    let mounted = true
+    const loadOnboarding = async () => {
+      try {
+        const state = await getOnboardingState()
+        if (mounted) setOnboardingState(state)
+      } catch {
+        if (mounted) setOnboardingState(null)
+      }
+    }
+    void loadOnboarding()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   const handleRefresh = async () => {
     setIsRefreshing(true)
     try {
@@ -207,6 +236,8 @@ export default function DashboardPage() {
     return <DashboardSkeleton />
   }
 
+  const totalApplications = analytics?.summary.totalApplications ?? 0
+
   const kpis = [
     {
       label: 'Total Applications',
@@ -220,7 +251,7 @@ export default function DashboardPage() {
     {
       label: 'Active Interviews',
       value: analytics?.summary.activeInterviews ?? 0,
-      subtext: 'Current stage',
+      subtext: `${totalApplications ? Math.round(((analytics?.summary.activeInterviews ?? 0) / totalApplications) * 100) : 0}% of pipeline`,
       icon: MdHandshake,
       color: 'from-blue-500 to-blue-600',
       border: 'border-l-blue-500',
@@ -229,7 +260,7 @@ export default function DashboardPage() {
     {
       label: 'Offers',
       value: analytics?.summary.offers ?? 0,
-      subtext: 'Current stage',
+      subtext: `${totalApplications ? Math.round(((analytics?.summary.offers ?? 0) / totalApplications) * 100) : 0}% conversion`,
       icon: MdStarRate,
       color: 'from-emerald-500 to-emerald-600',
       border: 'border-l-emerald-500',
@@ -238,7 +269,7 @@ export default function DashboardPage() {
     {
       label: 'Rejections',
       value: analytics?.summary.rejections ?? 0,
-      subtext: 'Current stage',
+      subtext: `${totalApplications ? Math.round(((analytics?.summary.rejections ?? 0) / totalApplications) * 100) : 0}% of pipeline`,
       icon: MdClose,
       color: 'from-rose-400 to-rose-500',
       border: 'border-l-rose-500',
@@ -247,18 +278,29 @@ export default function DashboardPage() {
   ]
 
   const modules = [
-    { title: 'Contacts', icon: MdPeople, desc: 'Manage your professional network', href: '/contacts', color: 'bg-blue-50 text-blue-600' },
-    { title: 'Outreach', icon: MdOutlineEmail, desc: 'Track your networking efforts', href: '/outreach', color: 'bg-violet-50 text-violet-600' },
-    { title: 'Resumes', icon: MdDescription, desc: 'Upload and manage documents', href: '/resumes', color: 'bg-emerald-50 text-emerald-600' },
-    { title: 'Interview Prep', icon: MdQuiz, desc: 'Practice with curated Q&A', href: '/interview-prep', color: 'bg-amber-50 text-amber-600' },
-    { title: 'Templates', icon: MdArticle, desc: 'Email & LinkedIn templates', href: '/templates', color: 'bg-rose-50 text-rose-600' },
-    { title: 'Settings', icon: MdSettings, desc: 'Account & preferences', href: '/settings', color: 'bg-slate-100 text-slate-600' },
+    { title: 'Add Application', icon: MdWork, desc: 'Capture a new role in your pipeline', href: '/applications', color: 'bg-teal-50 text-teal-600' },
+    { title: 'Run Outreach', icon: MdOutlineEmail, desc: 'Send and track follow-up messages', href: '/outreach', color: 'bg-violet-50 text-violet-600' },
+    { title: 'ATS Resume Check', icon: MdDescription, desc: 'Score your resume before applying', href: '/resumes#ats-checker', color: 'bg-emerald-50 text-emerald-600' },
+    { title: 'Interview Drill', icon: MdQuiz, desc: 'Start a focused practice session', href: '/interview-prep', color: 'bg-amber-50 text-amber-600' },
+    { title: 'Template Library', icon: MdArticle, desc: 'Pick proven outreach templates', href: '/templates', color: 'bg-rose-50 text-rose-600' },
+    { title: 'Preferences', icon: MdSettings, desc: 'Tune sync and notification defaults', href: '/settings', color: 'bg-slate-100 text-slate-600' },
     ...(user?.tier === 'admin' ? [{ title: 'Admin', icon: MdAdminPanelSettings, desc: 'Platform management', href: '/admin', color: 'bg-teal-50 text-teal-600' }] : []),
   ]
 
   const formatActivityDate = (value: string) => {
     const date = new Date(value)
-    return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    const diffMs = date.getTime() - activityNowMs
+    const minute = 60 * 1000
+    const hour = 60 * minute
+    const day = 24 * hour
+    const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+    if (Math.abs(diffMs) < hour) {
+      return rtf.format(Math.round(diffMs / minute), 'minute')
+    }
+    if (Math.abs(diffMs) < day) {
+      return rtf.format(Math.round(diffMs / hour), 'hour')
+    }
+    return rtf.format(Math.round(diffMs / day), 'day')
   }
 
   const handleManualSync = async () => {
@@ -321,6 +363,22 @@ export default function DashboardPage() {
     }
   }
 
+  const handleDismissOnboarding = async () => {
+    try {
+      await setOnboardingCompleted(true)
+      setOnboardingDismissed(true)
+      setOnboardingState((prev) => (prev ? { ...prev, completed: true } : prev))
+      try {
+        window.localStorage.setItem('hc:dashboard_onboarding_dismissed', 'true')
+      } catch {
+        // ignore localStorage write issues
+      }
+      toast.success('Onboarding dismissed')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to dismiss onboarding')
+    }
+  }
+
   const hour = new Date().getHours()
   const greeting =
     hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
@@ -344,57 +402,6 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2 self-start">
-          <div className="space-y-1">
-            <label className="block text-[11px] font-medium text-slate-500">From</label>
-            <DateInput
-              value={syncFromDate}
-              onChange={(value) => {
-                setSyncRangePreset('custom')
-                setSyncFromDate(value)
-              }}
-              className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="block text-[11px] font-medium text-slate-500">To</label>
-            <DateInput
-              value={syncToDate}
-              onChange={(value) => {
-                setSyncRangePreset('custom')
-                setSyncToDate(value)
-              }}
-              className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="block text-[11px] font-medium text-slate-500">Range</label>
-            <select
-              value={syncRangePreset}
-              onChange={(event) =>
-                applyRangePreset(
-                  event.target.value as 'custom' | 'last7' | 'last30' | 'thisMonth'
-                )
-              }
-              className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
-            >
-              <option value="custom">Custom</option>
-              <option value="last7">Last 7 days</option>
-              <option value="last30">Last 30 days</option>
-              <option value="thisMonth">This month</option>
-            </select>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setSyncRangePreset('custom')
-              setSyncFromDate('')
-              setSyncToDate('')
-            }}
-            className="h-9 px-2 text-xs text-slate-500"
-          >
-            Clear
-          </Button>
           <Button
             type="button"
             onClick={handleRefresh}
@@ -407,14 +414,83 @@ export default function DashboardPage() {
           </Button>
           <Button
             type="button"
-            onClick={handleManualSync}
-            disabled={syncButtonLocked}
-            className="inline-flex items-center gap-2 min-w-[120px] justify-center"
+            variant="outline"
+            onClick={() => setSyncPanelOpen((open) => !open)}
+            className="inline-flex items-center gap-2"
           >
-            <MdSync className={isTriggeringSync ? 'animate-spin-slow' : ''} />
-            {syncButtonLocked ? 'Syncing...' : 'Sync Jobs'}
+            <MdSync className={syncPanelOpen ? 'animate-spin-slow' : ''} />
+            {syncPanelOpen ? 'Hide Sync Controls' : 'Show Sync Controls'}
           </Button>
-          {syncButtonLocked && (
+        </div>
+      </div>
+
+      {syncPanelOpen && (
+        <Card className="animate-slide-down border border-slate-200/70">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-500">From</label>
+                <DateInput
+                  value={syncFromDate}
+                  onChange={(value) => {
+                    setSyncRangePreset('custom')
+                    setSyncFromDate(value)
+                  }}
+                  className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-500">To</label>
+                <DateInput
+                  value={syncToDate}
+                  onChange={(value) => {
+                    setSyncRangePreset('custom')
+                    setSyncToDate(value)
+                  }}
+                  className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-500">Range</label>
+                <select
+                  value={syncRangePreset}
+                  onChange={(event) =>
+                    applyRangePreset(
+                      event.target.value as 'custom' | 'last7' | 'last30' | 'thisMonth'
+                    )
+                  }
+                  className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+                >
+                  <option value="custom">Custom</option>
+                  <option value="last7">Last 7 days</option>
+                  <option value="last30">Last 30 days</option>
+                  <option value="thisMonth">This month</option>
+                </select>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setSyncRangePreset('custom')
+                  setSyncFromDate('')
+                  setSyncToDate('')
+                }}
+                className="h-9 px-2 text-xs text-slate-500"
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                onClick={handleManualSync}
+                disabled={syncButtonLocked}
+                className="inline-flex items-center gap-2 min-w-[120px] justify-center"
+              >
+                <MdSync className={isTriggeringSync ? 'animate-spin-slow' : ''} />
+                {syncButtonLocked ? 'Syncing...' : 'Sync Jobs'}
+              </Button>
+            </div>
+
+            {syncButtonLocked && (
             <Button
               type="button"
               variant="outline"
@@ -426,12 +502,12 @@ export default function DashboardPage() {
             </Button>
           )}
           {syncStatus && syncStatus.status === 'in_progress' && (
-            <div className="w-full rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800">
+            <div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800">
               Syncing emails: {syncStatus.processed_count}/{syncStatus.total_emails} processed.
             </div>
           )}
           {!syncInProgress && extractionInProgress && queueStatus && (
-            <div className="w-full rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800 flex items-center justify-between">
+            <div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800 flex items-center justify-between">
               <span>
                 Extracting jobs... ({queueStatus.counts.completed}/{queueStatus.counts.waiting + queueStatus.counts.active + queueStatus.counts.completed} today)
               </span>
@@ -440,18 +516,23 @@ export default function DashboardPage() {
               </span>
             </div>
           )}
-          {queueStatus && queueStatus.counts.failed > 0 && (
-            <div className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              {queueStatus.counts.failed} extraction{queueStatus.counts.failed > 1 ? 's' : ''} failed — likely AI rate limit. Jobs will retry automatically.
-            </div>
-          )}
           {syncStatus && syncStatus.status === 'failed' && (
-            <div className="w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
               Last sync failed{syncStatus.error_message ? `: ${syncStatus.error_message}` : '.'}
             </div>
           )}
-        </div>
-      </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {onboardingState && !onboardingState.completed && !onboardingDismissed && (
+        <OnboardingChecklist
+          hasGmailConnected={onboardingState.hasGmailConnected}
+          hasCreatedJob={onboardingState.hasCreatedJob}
+          hasRunSync={onboardingState.hasRunSync}
+          onSkip={handleDismissOnboarding}
+        />
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -502,7 +583,11 @@ export default function DashboardPage() {
 
       {/* Analytics & Insights */}
       <div className="space-y-6 animate-slide-up delay-250">
-        <h2 className="text-lg font-bold text-slate-900">Analytics & Insights</h2>
+        <Card className="border border-slate-200/60">
+          <CardContent className="p-4">
+            <h2 className="text-lg font-bold text-slate-900">Analytics & Insights</h2>
+          </CardContent>
+        </Card>
 
         <div className="grid lg:grid-cols-2 gap-6">
           <PipelineFunnel data={analytics?.funnel || []} />
@@ -549,8 +634,18 @@ export default function DashboardPage() {
             <tbody className="divide-y divide-slate-100">
               {recentJobs.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-slate-400">
-                    No applications yet. <Link href="/applications" className="text-teal-600 font-medium">Add your first job →</Link>
+                  <td colSpan={6} className="px-6 py-10 text-center">
+                    <div className="mx-auto max-w-sm">
+                      <svg viewBox="0 0 120 72" className="mx-auto h-16 w-24 text-teal-300" fill="none" aria-hidden>
+                        <rect x="6" y="10" width="108" height="56" rx="8" className="fill-current opacity-20" />
+                        <rect x="16" y="20" width="48" height="6" rx="3" className="fill-current opacity-60" />
+                        <rect x="16" y="31" width="88" height="4" rx="2" className="fill-current opacity-40" />
+                        <rect x="16" y="40" width="72" height="4" rx="2" className="fill-current opacity-30" />
+                      </svg>
+                      <p className="mt-3 text-sm text-slate-500">
+                        No applications yet. <Link href="/applications" className="text-teal-600 font-medium">Add your first job →</Link>
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -561,9 +656,9 @@ export default function DashboardPage() {
                     <td className="px-6 py-4 text-slate-600 text-sm">{job.title}</td>
                     <td className="px-6 py-4"><Badge variant={getStatusVariant(job.status)}>{job.status}</Badge></td>
                     <td className="px-6 py-4 text-slate-400 text-xs capitalize">{job.source || 'Manual'}</td>
-                    <td className="px-6 py-4 text-slate-400 text-xs">{formatActivityDate(job.updated_at)}</td>
+                    <td className="px-6 py-4 text-slate-400 text-xs" title={new Date(job.updated_at).toLocaleString()}>{formatActivityDate(job.updated_at)}</td>
                     <td className="px-6 py-4 text-right">
-                      <Link href="/applications"><Button variant="ghost" size="sm" className="text-teal-600 text-xs">View →</Button></Link>
+                      <Link href={`/applications?jobId=${job.id}`}><Button variant="ghost" size="sm" className="text-teal-600 text-xs">View →</Button></Link>
                     </td>
                   </tr>
                 )
@@ -599,7 +694,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {analytics && (
+      {analytics ? (
         <div className="grid lg:grid-cols-2 gap-6 animate-slide-up delay-500">
           <GoalTracker
             weeklyTarget={analytics.gamification.weeklyTarget}
@@ -608,6 +703,19 @@ export default function DashboardPage() {
             longestStreak={analytics.gamification.longestStreak}
           />
           <AchievementBadges achievements={analytics.gamification.achievements} />
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-2 gap-6 animate-slide-up delay-500">
+          {[0, 1].map((item) => (
+            <Card key={item}>
+              <CardContent className="p-5 animate-pulse space-y-3">
+                <div className="h-4 w-36 rounded bg-slate-200" />
+                <div className="h-3 w-full rounded bg-slate-100" />
+                <div className="h-3 w-5/6 rounded bg-slate-100" />
+                <div className="h-24 w-full rounded bg-slate-100" />
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
     </div>

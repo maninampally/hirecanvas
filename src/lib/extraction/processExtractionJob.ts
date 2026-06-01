@@ -7,7 +7,6 @@ import {
 } from '@/lib/queue/extractionQueue'
 import { recordAuditEvent } from '@/lib/security/audit'
 import { decryptOrReturnPlainText } from '@/lib/security/encryption'
-import { withJobUpsertLock } from '@/lib/security/jobUpsertLock'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getExtractionConfig, type ExtractionConfig } from '@/lib/extraction/config'
 import {
@@ -33,6 +32,7 @@ import {
   upsertJobFromExtraction,
   type VerifiedExtraction,
 } from '@/lib/extraction/upsert'
+import { billPipelineCostCents, estimateRawCostCents } from '@/lib/extraction/costEstimate'
 import { countJobSignals, isAtsDomain } from '@/lib/extraction/signalBooster'
 
 const MAX_EXTRACTION_TEXT_LENGTH = 2500
@@ -68,21 +68,6 @@ function toConfidenceScore(value: number | null | undefined) {
   return Math.max(0, Math.min(100, Math.round(normalized)))
 }
 
-function estimateCostCents(provider: string, inputTokens: number, outputTokens: number) {
-  const rates = {
-    gemini: { input: 0.00075, output: 0.003 },
-    claude: { input: 0.003, output: 0.015 },
-    openai: { input: 0.00015, output: 0.0006 },
-  } as const
-  if (!(provider in rates)) return 0
-  const rate = rates[provider as keyof typeof rates]
-  const raw = (inputTokens / 1000) * rate.input + (outputTokens / 1000) * rate.output
-  // Use Math.ceil so sub-cent costs (e.g. $0.0003 from GPT-4o-mini) register as 1 cent
-  // instead of rounding to 0 — which previously disabled the daily budget guard entirely.
-  // Router retries add more `estimateCostCents` calls on the same trace — daily budget is approximate vs invoice.
-  return raw > 0 ? Math.max(1, Math.ceil(raw)) : 0
-}
-
 type PipelineTrace = {
   stage1?: ClassifierResult | null
   stage2?: ExtractorResult | null
@@ -93,12 +78,21 @@ type PipelineTrace = {
   passCount: number
   inputTokens: number
   outputTokens: number
-  costCents: number
+  /** Sum of fractional cents across stages (billed once in `writeAiUsage`). */
+  rawCostCents: number
 }
 
 // ---------------------------------------------------------------------------
-// STAGE 1 — Relevance Classifier (OpenAI GPT-4o-mini preferred)
+// STAGE 1 — Relevance Classifier (preferred provider configurable)
 // ---------------------------------------------------------------------------
+
+function getExtractionPreferredProvider() {
+  const raw = (process.env.EXTRACTION_PRIMARY_PROVIDER || '').trim().toLowerCase()
+  if (raw === 'gemini' || raw === 'openai' || raw === 'claude') {
+    return raw as 'gemini' | 'openai' | 'claude'
+  }
+  return process.env.GEMINI_BATCH_ENABLED === 'true' ? 'gemini' : 'openai'
+}
 
 async function runStage1Classifier(email: ExtractionEmailPayload, trace: PipelineTrace) {
   const prompt = buildClassifierPrompt({
@@ -113,7 +107,7 @@ async function runStage1Classifier(email: ExtractionEmailPayload, trace: Pipelin
       task: 'job_extraction',
       systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
       prompt,
-      preferredProvider: 'openai',
+      preferredProvider: getExtractionPreferredProvider(),
       strictPreferredProvider: false,
       temperature: 0,
       maxTokens: 1024, // gemini-2.5-flash uses thinking tokens that eat into output budget
@@ -121,7 +115,7 @@ async function runStage1Classifier(email: ExtractionEmailPayload, trace: Pipelin
     trace.passCount += 1
     trace.inputTokens += result.usage?.inputTokens || 0
     trace.outputTokens += result.usage?.outputTokens || 0
-    trace.costCents += estimateCostCents(
+    trace.rawCostCents += estimateRawCostCents(
       result.provider,
       result.usage?.inputTokens || 0,
       result.usage?.outputTokens || 0
@@ -161,7 +155,7 @@ async function runStage1Classifier(email: ExtractionEmailPayload, trace: Pipelin
 }
 
 // ---------------------------------------------------------------------------
-// STAGE 2 — Extractor (OpenAI GPT-4o-mini preferred)
+// STAGE 2 — Extractor (preferred provider configurable)
 // ---------------------------------------------------------------------------
 
 async function runStage2Extractor(
@@ -182,7 +176,7 @@ async function runStage2Extractor(
       task: 'job_extraction',
       systemPrompt: EXTRACTOR_SYSTEM_PROMPT,
       prompt,
-      preferredProvider: 'openai',
+      preferredProvider: getExtractionPreferredProvider(),
       strictPreferredProvider: false,
       temperature: 0,
       maxTokens: 1024,
@@ -190,7 +184,7 @@ async function runStage2Extractor(
     trace.passCount += 1
     trace.inputTokens += result.usage?.inputTokens || 0
     trace.outputTokens += result.usage?.outputTokens || 0
-    trace.costCents += estimateCostCents(
+    trace.rawCostCents += estimateRawCostCents(
       result.provider,
       result.usage?.inputTokens || 0,
       result.usage?.outputTokens || 0
@@ -275,7 +269,7 @@ async function runStage3Verifier(params: {
     trace.passCount += 1
     trace.inputTokens += result.usage?.inputTokens || 0
     trace.outputTokens += result.usage?.outputTokens || 0
-    trace.costCents += estimateCostCents(
+    trace.rawCostCents += estimateRawCostCents(
       result.provider,
       result.usage?.inputTokens || 0,
       result.usage?.outputTokens || 0
@@ -381,7 +375,7 @@ export async function runExtractionPipeline(params: {
     passCount: 0,
     inputTokens: 0,
     outputTokens: 0,
-    costCents: 0,
+    rawCostCents: 0,
   }
 
   // Stage 1 — classifier
@@ -664,21 +658,19 @@ export async function runExtractionPipeline(params: {
     ai_confidence_score: toConfidenceScore(stage3.final_confidence),
   }
 
-  const upsertResult = await withJobUpsertLock(userId, async () =>
-    upsertJobFromExtraction({
-      userId,
-      extraction: verified,
-      email: {
-        gmailMessageId: email.gmailMessageId,
-        from: email.from,
-        subject: email.subject,
-        receivedAtIso: email.receivedAtIso,
-        snippet: email.snippet,
-        emailDirection: email.emailDirection,
-      },
-      body: email.bodyText,
-    })
-  )
+  const upsertResult = await upsertJobFromExtraction({
+    userId,
+    extraction: verified,
+    email: {
+      gmailMessageId: email.gmailMessageId,
+      from: email.from,
+      subject: email.subject,
+      receivedAtIso: email.receivedAtIso,
+      snippet: email.snippet,
+      emailDirection: email.emailDirection,
+    },
+    body: email.bodyText,
+  })
 
   await markAutoAccepted({
     userId,
@@ -743,13 +735,14 @@ async function writeAiUsage(
 ) {
   const supabase = createServiceClient()
   const totalTokens = trace.inputTokens + trace.outputTokens
-  if (totalTokens === 0 && trace.costCents === 0) return
+  const costCents = billPipelineCostCents(trace.rawCostCents, totalTokens)
+  if (totalTokens === 0 && costCents === 0) return
   try {
     await supabase.from('ai_usage').insert({
       user_id: userId,
       feature: 'email_extraction',
       tokens_used: Math.max(1, totalTokens),
-      cost_cents: trace.costCents,
+      cost_cents: costCents,
       tier,
       status: 'completed',
     })
