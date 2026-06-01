@@ -112,6 +112,12 @@ async function main() {
   }
   results.push(await checkAnthropic(process.env.ANTHROPIC_API_KEY))
   results.push(await checkOpenAI(process.env.OPENAI_API_KEY))
+  results.push({
+    name: 'MEMZENT_API_KEY',
+    ok: !!process.env.MEMZENT_API_KEY,
+    status: process.env.MEMZENT_API_KEY ? 200 : 'not_configured',
+    detail: process.env.MEMZENT_API_KEY ? 'configured' : 'missing',
+  })
 
   console.log('\n=== AI provider key health ===')
   for (const r of results) {

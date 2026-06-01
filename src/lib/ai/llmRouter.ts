@@ -1,14 +1,15 @@
 import type IORedis from 'ioredis'
 import { runClaude } from '@/lib/ai/claude'
 import { ProviderError, type ProviderRequest } from '@/lib/ai/gemini'
+import { runMemzent } from '@/lib/ai/memzent'
 import { runOpenAI } from '@/lib/ai/openai'
 import { getRedisClient } from '@/lib/redis'
 import { runGemini } from '@/lib/ai/gemini'
 
-export type AIProvider = 'gemini' | 'claude' | 'openai' | 'ollama'
+export type AIProvider = 'gemini' | 'claude' | 'openai' | 'ollama' | 'memzent'
 export type RoutedProvider = AIProvider | 'regex_fallback'
 
-const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'openai', 'claude', 'ollama']
+const PROVIDER_CHAIN: AIProvider[] = ['gemini', 'openai', 'claude', 'memzent', 'ollama']
 const COOLDOWN_MS = 25 * 1000
 
 export type LLMRouterInput = {
@@ -64,6 +65,7 @@ function isProviderConfigured(provider: AIProvider): boolean {
   if (provider === 'gemini') return !!process.env.GEMINI_API_KEY
   if (provider === 'openai') return !!process.env.OPENAI_API_KEY
   if (provider === 'claude') return !!process.env.ANTHROPIC_API_KEY
+  if (provider === 'memzent') return !!process.env.MEMZENT_API_KEY
   return false
 }
 
@@ -177,6 +179,7 @@ function buildRegexFallback(input: LLMRouterInput, failedProviders: AIProvider[]
 async function runProvider(provider: AIProvider, request: ProviderRequest) {
   if (provider === 'gemini') return runGemini(request)
   if (provider === 'claude') return runClaude(request)
+  if (provider === 'memzent') return runMemzent(request)
   return runOpenAI(request)
 }
 
@@ -229,11 +232,10 @@ export async function runWithLLMRouter(input: LLMRouterInput): Promise<LLMRouter
     } catch (error) {
       failedProviders.push(provider)
       const failures = health.failures + 1
-      const quotaError = error instanceof ProviderError && (error as ProviderError & { quotaError?: boolean }).quotaError
       await writeProviderHealth(provider, {
         failures,
         lastError: error instanceof Error ? error.message : 'unknown_error',
-        cooldownUntil: quotaError ? Date.now() + COOLDOWN_MS : health.cooldownUntil,
+        cooldownUntil: Date.now() + COOLDOWN_MS,
       })
     }
   }

@@ -1,9 +1,9 @@
 import { getRedisClient } from '@/lib/redis'
 
 const KEY_PREFIX = 'job_upsert:'
-const TTL_SEC = 120
-const SPIN_MS = 200
-const MAX_SPINS = 75
+const TTL_SEC = parseInt(process.env.JOB_UPSERT_LOCK_TTL_SEC || '120', 10)
+const SPIN_MS = parseInt(process.env.JOB_UPSERT_LOCK_SPIN_MS || '200', 10)
+const MAX_SPINS = parseInt(process.env.JOB_UPSERT_LOCK_MAX_SPINS || '300', 10)
 
 /**
  * Serializes `upsertJobFromExtraction` per user so two concurrent extractions
@@ -31,6 +31,10 @@ export async function withJobUpsertLock<T>(userId: string, fn: () => Promise<T>)
     } catch (err) {
       console.warn('[jobUpsertLock] Redis error, running without lock:', err instanceof Error ? err.message : err)
       return fn()
+    }
+    // log occasional spin progress for long waits
+    if (spin > 0 && spin % Math.max(1, Math.floor(1000 / SPIN_MS)) === 0) {
+      console.warn(`[jobUpsertLock] waiting for lock ${key} spin=${spin}/${MAX_SPINS}`)
     }
     await new Promise((r) => setTimeout(r, SPIN_MS))
   }

@@ -17,14 +17,14 @@ export class DailyAIBudgetExceededError extends Error {
 }
 
 function getDailyCapCents(tier: UserTier) {
-  // Cost tracking uses Math.max(1, ceil(raw)) so each email registers as ≥1 cent
-  // even though actual provider cost is ~$0.0003. Caps are set against tracked cents.
-  // Elite/Admin: $20.00 = ~20,000 emails/day
-  // Pro: $5.00 = ~5,000 emails/day (covers large initial syncs)
-  // Free: $0.20 = ~200 emails/day
-  if (tier === 'elite' || tier === 'admin') return 2000  // $20.00
-  if (tier === 'pro') return 500                          // $5.00
-  return 20                                               // $0.20
+  // Billed ~1 cent per email when the 3-stage pipeline runs (fractional raw cost,
+  // floored once per email in writeAiUsage — not once per LLM stage).
+  // Elite/Admin: $20.00 ≈ 2,000 extractions/day
+  // Pro: $5.00 ≈ 500 extractions/day
+  // Free: $2.00 ≈ 200 extractions/day (initial sync headroom)
+  if (tier === 'elite' || tier === 'admin') return 2000 // $20.00
+  if (tier === 'pro') return 500 // $5.00
+  return 200 // $2.00
 }
 
 export async function assertWithinDailyAIBudget(userId: string, tier: UserTier) {
