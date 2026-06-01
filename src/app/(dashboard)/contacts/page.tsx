@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   createContact,
   deleteContact,
@@ -36,11 +36,13 @@ const initialForm: ContactFormData = {
   company: '',
   title: '',
   relationship: 'Recruiter',
+  notes: '',
 }
 
 export default function ContactsPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<ContactFormData>(initialForm)
@@ -50,11 +52,18 @@ export default function ContactsPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
-  const queryKey = ['contacts', search]
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  const queryKey = ['contacts', debouncedSearch]
 
   const contactsQuery = useQuery({
     queryKey,
-    queryFn: async () => (await getContacts(search)) as Contact[],
+    queryFn: async () => (await getContacts(debouncedSearch)) as Contact[],
   })
 
   const contacts = contactsQuery.data || []
@@ -164,6 +173,7 @@ export default function ContactsPage() {
       company: contact.company || '',
       title: contact.title || '',
       relationship: contact.relationship || 'Recruiter',
+      notes: contact.notes || '',
     })
     setShowForm(true)
   }
@@ -221,67 +231,91 @@ export default function ContactsPage() {
       </Card>
 
       {showForm && (
-        <Card>
-          <CardContent className="pt-6">
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              {formError && (
-                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                  {formError}
-                </p>
-              )}
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <Input
-                  placeholder="Full name"
-                  value={form.name || ''}
-                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                  required
-                />
-                <Input
-                  placeholder="Email"
-                  type="email"
-                  value={form.email || ''}
-                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
-                />
-                <Input
-                  placeholder="Company"
-                  value={form.company || ''}
-                  onChange={(e) => setForm((prev) => ({ ...prev, company: e.target.value }))}
-                />
-                <Input
-                  placeholder="Role / Title"
-                  value={form.title || ''}
-                  onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-                />
-              </div>
-
-              <Select
-                value={form.relationship || 'Recruiter'}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    relationship: e.target.value as ContactFormData['relationship'],
-                  }))
-                }
-                className="w-48"
-              >
-                <option value="Recruiter">Recruiter</option>
-                <option value="Hiring Manager">Hiring Manager</option>
-                <option value="Employee">Employee</option>
-                <option value="Other">Other</option>
-              </Select>
-
-              <div className="flex justify-end gap-3">
-                <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isSaving}>
-                  {isSaving ? 'Saving...' : editingId ? 'Update Contact' : 'Create Contact'}
+        <div className="fixed inset-0 z-40 flex justify-end">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/30"
+            aria-label="Close contact panel"
+            onClick={() => setShowForm(false)}
+          />
+          <div className="relative z-10 h-full w-full max-w-xl border-l border-slate-200 bg-white shadow-xl animate-slide-up overflow-y-auto">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {editingId ? 'Edit Contact' : 'Add Contact'}
+                </h2>
+                <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
+                  Close
                 </Button>
               </div>
-            </form>
-          </CardContent>
-        </Card>
+              <form className="space-y-4" onSubmit={handleSubmit}>
+                {formError && (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    {formError}
+                  </p>
+                )}
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Input
+                    placeholder="Full name"
+                    value={form.name || ''}
+                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                    required
+                  />
+                  <Input
+                    placeholder="Email"
+                    type="email"
+                    value={form.email || ''}
+                    onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Company"
+                    value={form.company || ''}
+                    onChange={(e) => setForm((prev) => ({ ...prev, company: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Role / Title"
+                    value={form.title || ''}
+                    onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+                  />
+                </div>
+
+                <Select
+                  value={form.relationship || 'Recruiter'}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      relationship: e.target.value as ContactFormData['relationship'],
+                    }))
+                  }
+                  className="w-48"
+                >
+                  <option value="Recruiter">Recruiter</option>
+                  <option value="Hiring Manager">Hiring Manager</option>
+                  <option value="Employee">Employee</option>
+                  <option value="Other">Other</option>
+                </Select>
+
+                <textarea
+                  placeholder="Notes"
+                  value={form.notes || ''}
+                  onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  rows={3}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                />
+
+                <div className="flex justify-end gap-3">
+                  <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isSaving}>
+                    {isSaving ? 'Saving...' : editingId ? 'Update Contact' : 'Create Contact'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
 
       {error && (

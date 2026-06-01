@@ -12,7 +12,7 @@ const Button = React.forwardRef<
 
   const variants: Record<string, string> = {
     default: 'bg-gradient-to-r from-teal-500 to-teal-600 text-white hover:from-teal-600 hover:to-teal-700 shadow-md shadow-teal-500/20 hover:shadow-lg hover:shadow-teal-500/30 focus-visible:ring-teal-500',
-    outline: 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm focus-visible:ring-teal-500',
+    outline: 'border border-slate-200 bg-transparent text-slate-700 hover:bg-slate-50/70 hover:border-slate-300 shadow-sm focus-visible:ring-teal-500',
     ghost: 'text-slate-700 hover:bg-slate-100 focus-visible:ring-teal-500',
     destructive: 'bg-gradient-to-r from-rose-500 to-rose-600 text-white hover:from-rose-600 hover:to-rose-700 shadow-md shadow-rose-500/20 focus-visible:ring-rose-500',
   }

@@ -61,6 +61,19 @@ export default function BillingPage() {
   const invoices = data?.invoices || []
   const canManage = Boolean(data?.stripeCustomerId)
 
+  const formatEventType = (eventType: string) => {
+    const map: Record<string, string> = {
+      'invoice.paid': 'Invoice paid',
+      'invoice.payment_failed': 'Payment failed',
+      'invoice.created': 'Invoice created',
+      'customer.subscription.created': 'Subscription started',
+      'customer.subscription.updated': 'Subscription updated',
+      'customer.subscription.deleted': 'Subscription canceled',
+      'checkout.session.completed': 'Checkout completed',
+    }
+    return map[eventType] || eventType.replaceAll('.', ' ')
+  }
+
   const planBadgeVariant = useMemo(() => {
     if (currentTier === 'elite') return 'violet'
     if (currentTier === 'pro') return 'teal'
@@ -153,14 +166,14 @@ export default function BillingPage() {
               <div className="inline-flex rounded-lg border border-slate-200 p-1">
                 <button
                   type="button"
-                  className={`rounded-md px-3 py-1.5 text-sm ${interval === 'month' ? 'bg-teal-500 text-white' : 'text-slate-600'}`}
+                  className={`rounded-md px-3 py-1.5 text-sm transition-colors duration-200 ${interval === 'month' ? 'bg-teal-500 text-white' : 'text-slate-600'}`}
                   onClick={() => setInterval('month')}
                 >
                   Monthly
                 </button>
                 <button
                   type="button"
-                  className={`rounded-md px-3 py-1.5 text-sm ${interval === 'year' ? 'bg-teal-500 text-white' : 'text-slate-600'}`}
+                  className={`rounded-md px-3 py-1.5 text-sm transition-colors duration-200 ${interval === 'year' ? 'bg-teal-500 text-white' : 'text-slate-600'}`}
                   onClick={() => setInterval('year')}
                 >
                   Yearly (save ~20%)
@@ -191,6 +204,16 @@ export default function BillingPage() {
                 <Button variant="outline" disabled={isCheckoutLoading || isLoading} onClick={() => void handleUpgrade('elite')}>
                   {isCheckoutLoading ? 'Redirecting...' : `Upgrade to Elite (${interval})`}
                 </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 pt-1">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold text-slate-700 mb-1">Pro highlights</p>
+                  <p className="text-xs text-slate-500">AI extraction, follow-up nudges, and higher daily sync limits.</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold text-slate-700 mb-1">Elite highlights</p>
+                  <p className="text-xs text-slate-500">Unlimited syncs, premium AI models, and priority support.</p>
+                </div>
               </div>
             </div>
           ) : (
@@ -274,7 +297,7 @@ export default function BillingPage() {
                   {invoices.map((item) => (
                     <tr key={item.id} className="border-b border-slate-100 text-sm">
                       <td className="px-2 py-2">{new Date(item.created_at).toLocaleDateString()}</td>
-                      <td className="px-2 py-2">{item.event_type}</td>
+                      <td className="px-2 py-2">{formatEventType(item.event_type)}</td>
                       <td className="px-2 py-2">{item.status || 'n/a'}</td>
                       <td className="px-2 py-2 text-right">
                         ${((item.amount_cents || 0) / 100).toFixed(2)} {item.currency?.toUpperCase() || 'USD'}

@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/authStore'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { ReactQueryProvider } from '@/components/providers/ReactQueryProvider'
+import { LogoIcon } from '@/components/brand/Logo'
  
 
 function isMissingOnboardingColumnError(error: unknown) {
@@ -112,7 +113,17 @@ export default function DashboardRootLayout({
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f0fdfb]">
-        <div className="text-slate-600">Loading...</div>
+        <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-sm animate-pulse">
+          <div className="flex items-center gap-3">
+            <LogoIcon size={32} className="shrink-0" priority />
+            <div className="h-3 w-36 rounded bg-slate-200" />
+          </div>
+          <div className="mt-4 space-y-2">
+            <div className="h-2.5 w-full rounded bg-slate-100" />
+            <div className="h-2.5 w-5/6 rounded bg-slate-100" />
+            <div className="h-2.5 w-2/3 rounded bg-slate-100" />
+          </div>
+        </div>
       </div>
     )
   }

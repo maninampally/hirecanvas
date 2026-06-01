@@ -8,6 +8,7 @@ import { MdVisibility, MdVisibilityOff } from 'react-icons/md'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { LogoIcon, LogoWordmark } from '@/components/brand/Logo'
 
 function LoginPageContent() {
   const [email, setEmail] = useState('')
@@ -16,6 +17,7 @@ function LoginPageContent() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [rememberMe, setRememberMe] = useState(true)
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -64,14 +66,11 @@ function LoginPageContent() {
 
   return (
     <div className="animate-slide-up flex flex-col items-center">
-      <div className="mb-8 flex items-center gap-2.5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 text-base font-bold text-white shadow-md shadow-teal-500/30">
-          H
-        </div>
-        <span className="text-[22px] font-bold tracking-tight text-slate-800">HireCanvas</span>
-      </div>
+      <Link href="/" className="mb-8 inline-flex">
+        <LogoWordmark height={40} priority />
+      </Link>
 
-      <Card className="w-full shadow-teal-md border-slate-200/60 rounded-3xl">
+      <Card className="w-full shadow-teal-md border-slate-200/60 rounded-2xl">
         <CardHeader className="text-center pb-2 pt-8">
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>Sign in to your account to continue</CardDescription>
@@ -95,6 +94,16 @@ function LoginPageContent() {
                 autoFocus
               />
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="rounded border-slate-300 accent-teal-500"
+              />
+              Remember me on this device
+            </label>
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -165,7 +174,14 @@ function LoginPageContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="text-sm text-slate-500">Loading...</div>}>
+    <Suspense fallback={
+      <div className="flex min-h-[160px] items-center justify-center">
+        <div className="text-center animate-pulse-soft">
+          <LogoIcon size={40} className="mx-auto mb-2 animate-spin-slow" />
+          <div className="text-sm text-slate-500">Loading...</div>
+        </div>
+      </div>
+    }>
       <LoginPageContent />
     </Suspense>
   )

@@ -25,6 +25,9 @@ export async function GET() {
     claude: [
       Boolean(process.env.ANTHROPIC_API_KEY),
     ],
+    memzent: [
+      Boolean(process.env.MEMZENT_API_KEY),
+    ],
     ollama: [
       Boolean(process.env.OLLAMA_API_URL || 'http://host.docker.internal:11434'),
       Boolean(process.env.OLLAMA_MODEL || 'llama3.2'),

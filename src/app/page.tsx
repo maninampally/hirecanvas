@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
+import { LogoWordmark } from '@/components/brand/Logo'
 import {
   MARKETING_CONTACT_EMAIL,
   MARKETING_DASHBOARD_ACTIVITY,
@@ -21,6 +22,7 @@ import {
   MdRocketLaunch,
   MdSpeed,
   MdShield,
+  MdMenu,
 } from 'react-icons/md'
 
 export default async function Home() {
@@ -54,12 +56,9 @@ export default async function Home() {
       {/* ── Header ── */}
       <header className="sticky top-0 z-50 glass border-b border-slate-200/40">
         <nav className="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-gradient-to-br from-teal-400 to-teal-600 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-teal-500/30">
-              H
-            </div>
-            <span className="text-xl font-bold text-slate-800 tracking-tight">HireCanvas</span>
-          </div>
+          <Link href="/">
+            <LogoWordmark height={44} priority />
+          </Link>
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-500">
             <a href="#features" className="hover:text-teal-600 transition-colors">Features</a>
             <a href="#how-it-works" className="hover:text-teal-600 transition-colors">How It Works</a>
@@ -74,6 +73,19 @@ export default async function Home() {
             </Link>
           </div>
         </nav>
+        <div className="md:hidden border-t border-slate-200/60 px-6 py-2">
+          <details>
+            <summary className="flex list-none items-center gap-2 text-sm font-medium text-slate-600 cursor-pointer">
+              <MdMenu className="text-base" />
+              Menu
+            </summary>
+            <div className="mt-2 pb-2 flex flex-col gap-2 text-sm">
+              <a href="#features" className="text-slate-600 hover:text-teal-600 transition-colors">Features</a>
+              <a href="#how-it-works" className="text-slate-600 hover:text-teal-600 transition-colors">How It Works</a>
+              <a href="#pricing" className="text-slate-600 hover:text-teal-600 transition-colors">Pricing</a>
+            </div>
+          </details>
+        </div>
       </header>
 
       {/* ── Hero ── */}
@@ -115,7 +127,8 @@ export default async function Home() {
               <div className="flex flex-wrap items-center gap-3 mt-12 pt-8 border-t border-slate-200/60">
                 {MARKETING_TRUST_CHIPS.map((label, i) => (
                   <div key={i} className="animate-slide-up" style={{ animationDelay: `${400 + i * 100}ms` }}>
-                    <p className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
+                    <p className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
+                      <MdCheckCircle className="text-teal-500" />
                       {label}
                     </p>
                   </div>
@@ -124,19 +137,28 @@ export default async function Home() {
             </div>
 
             {/* Dashboard preview mockup */}
-            <div className="animate-slide-up delay-200 hidden lg:block">
+            <div className="animate-slide-up delay-200 hidden md:block">
               <div className="relative">
-                <div className="bg-white rounded-2xl shadow-teal-lg border border-slate-200/60 p-6 space-y-4">
+                <div className="bg-white rounded-2xl shadow-teal-lg border border-slate-200/60 overflow-hidden md:scale-[0.92] md:origin-top lg:scale-100">
+                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5 bg-slate-50/80">
+                    <div className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                    </div>
+                    <p className="text-[11px] font-medium text-slate-500">hirecanvas.app/dashboard</p>
+                  </div>
+                  <div className="p-6 space-y-4">
                   {/* Mini KPI row */}
                   <div className="grid grid-cols-3 gap-3">
                     {[
-                      { label: 'Applications', color: 'border-l-teal-500', bg: 'bg-teal-50/50' },
-                      { label: 'Interviews', color: 'border-l-blue-500', bg: 'bg-blue-50/50' },
-                      { label: 'Offers', color: 'border-l-emerald-500', bg: 'bg-emerald-50/50' },
+                      { label: 'Applications', value: 128, color: 'border-l-teal-500', bg: 'bg-teal-50/50' },
+                      { label: 'Interviews', value: 47, color: 'border-l-blue-500', bg: 'bg-blue-50/50' },
+                      { label: 'Offers', value: 19, color: 'border-l-emerald-500', bg: 'bg-emerald-50/50' },
                     ].map((k, i) => (
                       <div key={i} className={`${k.bg} rounded-xl p-3 border-l-[3px] ${k.color}`}>
                         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{k.label}</p>
-                        <div className="mt-2 h-5 w-10 rounded bg-white/80" />
+                        <p className="mt-2 text-lg font-extrabold text-slate-900 leading-none">{k.value}</p>
                       </div>
                     ))}
                   </div>
@@ -146,7 +168,7 @@ export default async function Home() {
                       <div key={i} className="flex-1 bg-gradient-to-t from-teal-500 to-teal-300 rounded-t-lg transition-all hover:opacity-80" style={{ height: `${h}%` }} />
                     ))}
                   </div>
-                  {/* Mini table rows */}
+                  {/* Mini activity rows */}
                   <div className="space-y-2">
                     {MARKETING_DASHBOARD_ACTIVITY.map((row, i) => (
                       <div key={i} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2.5 hover:bg-slate-100/80 transition-colors">
@@ -158,6 +180,7 @@ export default async function Home() {
                         </span>
                       </div>
                     ))}
+                  </div>
                   </div>
                 </div>
                 {/* Floating decorations */}
@@ -176,7 +199,8 @@ export default async function Home() {
             <h2 className="text-3xl font-bold text-slate-900 mb-3">How It Works</h2>
             <p className="text-slate-500 max-w-lg mx-auto">Three simple steps to transform your job search</p>
           </div>
-          <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+          <div className="relative grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+            <div className="pointer-events-none absolute hidden md:block left-1/2 -translate-x-1/2 mt-8 w-[56%] h-px bg-gradient-to-r from-transparent via-teal-300/70 to-transparent" />
             {[
               { step: '01', title: 'Connect Gmail', desc: 'One-click OAuth — we pull job-related emails automatically.' },
               { step: '02', title: 'AI Extracts Data', desc: 'Gemini & Claude parse company, role, salary, and status.' },
@@ -188,11 +212,6 @@ export default async function Home() {
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 mb-2">{item.title}</h3>
                 <p className="text-sm text-slate-500 leading-relaxed">{item.desc}</p>
-                {i < 2 && (
-                  <div className="hidden md:block absolute top-8 -right-4 w-8 text-teal-300">
-                    <MdArrowForward className="text-2xl" />
-                  </div>
-                )}
               </div>
             ))}
           </div>
@@ -253,6 +272,43 @@ export default async function Home() {
         </div>
       </section>
 
+      {/* ── Testimonials ── */}
+      <section className="py-24 bg-white border-y border-slate-200/60">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-slate-900 mb-3">Loved by active job seekers</h2>
+            <p className="text-slate-500">Real outcomes from candidates using HireCanvas every week.</p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              {
+                quote: 'I stopped missing follow-ups. The sync + reminders combo paid for itself in week one.',
+                name: 'Priya M.',
+                role: 'Product Designer',
+              },
+              {
+                quote: 'The dashboard replaced my spreadsheet. I now know exactly where each application stands.',
+                name: 'Daniel R.',
+                role: 'Backend Engineer',
+              },
+              {
+                quote: 'Interview prep and resume tracking in one place cut my prep time by hours every week.',
+                name: 'Ava K.',
+                role: 'Data Analyst',
+              },
+            ].map((item, i) => (
+              <div key={i} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-teal-sm">
+                <p className="text-sm text-slate-700 leading-relaxed">&ldquo;{item.quote}&rdquo;</p>
+                <div className="mt-4 border-t border-slate-100 pt-4">
+                  <p className="text-sm font-semibold text-slate-900">{item.name}</p>
+                  <p className="text-xs text-slate-500">{item.role}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── Pricing ── */}
       <section id="pricing" className="py-24">
         <div className="max-w-7xl mx-auto px-6">
@@ -283,7 +339,7 @@ export default async function Home() {
                 </div>
                 {plan.priceYearly ? (
                   <p className={`mb-4 text-xs ${plan.highlighted ? 'text-teal-100' : 'text-slate-500'}`}>
-                    or ${plan.priceYearly}/year (save ~20%)
+                    or ${plan.priceYearly}/year
                   </p>
                 ) : null}
                 <ul className="text-left space-y-3 mb-8">
@@ -297,7 +353,7 @@ export default async function Home() {
                 <Link href="/register">
                   <Button
                     variant={plan.highlighted ? 'outline' : (i === 0 ? 'outline' : 'default')}
-                    className={`w-full ${plan.highlighted ? 'border-white/40 text-white hover:bg-white/10' : ''}`}
+                    className={plan.highlighted ? 'w-full border-white/60 bg-white text-teal-700 hover:bg-teal-50 hover:text-teal-800 shadow-sm' : 'w-full'}
                   >
                     Get Started
                   </Button>
@@ -321,11 +377,60 @@ export default async function Home() {
             Join thousands of job seekers who track smarter, not harder.
           </p>
           <Link href="/register">
-            <Button size="lg" variant="outline" className="border-white/40 text-white hover:bg-white/10 shadow-lg">
+            <Button size="lg" variant="outline" className="border-white/40 text-white bg-transparent hover:bg-white/10 hover:border-white/20 shadow-lg">
               Start Free — No Credit Card Required
               <MdArrowForward />
             </Button>
           </Link>
+        </div>
+      </section>
+
+      {/* ── FAQ ── */}
+      <section className="py-24 bg-white border-t border-slate-200/60">
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-slate-900 mb-3">FAQ</h2>
+            <p className="text-slate-500">Quick answers to common questions.</p>
+          </div>
+          <div className="space-y-4">
+            {[
+              {
+                q: 'Is my Gmail data safe?',
+                a: 'Yes. We use OAuth with least-privilege scopes, encrypt tokens, and never store your Gmail password. You can revoke access anytime from Google.',
+              },
+              {
+                q: 'Does it work with Outlook?',
+                a: 'Not yet. HireCanvas currently supports Gmail. Outlook support is planned after the beta period.',
+              },
+              {
+                q: 'Can I cancel anytime?',
+                a: 'Yes. You can cancel from the billing portal at any time. Your plan remains active until the end of the current period.',
+              },
+              {
+                q: 'Why do you need Gmail access?',
+                a: 'We use Gmail access to detect job-related emails and auto-update your pipeline. We only scan for job search signals, not personal content.',
+              },
+              {
+                q: 'What happens to my data if I cancel?',
+                a: 'Your data stays in your account so you can return later. You can also request a full export or deletion from settings.',
+              },
+            ].map((item, i) => (
+              <details
+                key={i}
+                className="group rounded-2xl border border-slate-200/60 bg-white px-6 py-4 shadow-teal-sm"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-base font-semibold text-slate-900">
+                  {item.q}
+                  <span className="text-teal-500 transition-transform duration-200 group-open:rotate-45">+</span>
+                </summary>
+                <div className="grid transition-all duration-300 [grid-template-rows:0fr] group-open:[grid-template-rows:1fr]">
+                  <div className="overflow-hidden">
+                    <p className="mt-3 text-sm text-slate-600 leading-relaxed">{item.a}</p>
+                  </div>
+                </div>
+              </details>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -334,17 +439,17 @@ export default async function Home() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-7 h-7 bg-gradient-to-br from-teal-400 to-teal-600 rounded-lg flex items-center justify-center text-white font-bold text-[10px]">H</div>
-                <span className="font-bold text-slate-800">HireCanvas</span>
-              </div>
-              <p className="text-sm text-slate-500">Your AI-powered job search command center.</p>
+              <Link href="/">
+                <LogoWordmark height={36} />
+              </Link>
+              <p className="mt-3 text-sm text-slate-500">Your AI-powered job search command center.</p>
             </div>
             <div>
               <h5 className="text-sm font-semibold text-slate-900 mb-3">Product</h5>
               <ul className="space-y-2 text-sm">
                 <li><a href="#features" className="text-slate-500 hover:text-teal-600 transition-colors">Features</a></li>
                 <li><a href="#pricing" className="text-slate-500 hover:text-teal-600 transition-colors">Pricing</a></li>
+                <li><Link href="/blog" className="text-slate-500 hover:text-teal-600 transition-colors">Blog</Link></li>
               </ul>
             </div>
             <div>
