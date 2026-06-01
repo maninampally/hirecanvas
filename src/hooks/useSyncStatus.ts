@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 export type SyncStatus = {
@@ -13,9 +13,17 @@ export type SyncStatus = {
   updated_at: string
 }
 
+export type FailedExtractionSummary = {
+  jobId: string
+  subject: string | null
+  reason: string
+  attemptsMade: number
+}
+
 export type QueueStatus = {
   counts: { waiting: number; active: number; completed: number; failed: number; delayed: number }
   isExtracting: boolean
+  failedSummaries?: FailedExtractionSummary[]
 }
 
 export function useSyncStatus(userId?: string) {
@@ -23,6 +31,18 @@ export function useSyncStatus(userId?: string) {
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null)
   const [loadedUserId, setLoadedUserId] = useState<string | undefined>(undefined)
+
+  const refreshQueue = useCallback(async () => {
+    try {
+      const queueRes = await fetch('/api/sync/queue', { cache: 'no-store' })
+      if (queueRes.ok) {
+        const queueData = (await queueRes.json()) as QueueStatus
+        setQueueStatus(queueData)
+      }
+    } catch (err) {
+      console.error('Error refreshing queue status:', err)
+    }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -40,8 +60,8 @@ export function useSyncStatus(userId?: string) {
     const refreshStatus = async () => {
       try {
         const [statusRes, queueRes] = await Promise.all([
-          fetch('/api/sync/status'),
-          fetch('/api/sync/queue')
+          fetch('/api/sync/status', { cache: 'no-store' }),
+          fetch('/api/sync/queue', { cache: 'no-store' }),
         ])
 
         let nextStatus: SyncStatus | null | undefined
@@ -56,6 +76,18 @@ export function useSyncStatus(userId?: string) {
         if (queueRes.ok) {
           queueData = (await queueRes.json()) as QueueStatus
           if (mounted) setQueueStatus(queueData)
+        } else if (mounted) {
+          // Avoid a stale failed count when the queue API errors mid-sync.
+          setQueueStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  counts: { ...prev.counts, failed: 0, waiting: 0, active: 0, delayed: 0 },
+                  isExtracting: false,
+                  failedSummaries: [],
+                }
+              : null
+          )
         }
 
         if (mounted) {
@@ -64,6 +96,17 @@ export function useSyncStatus(userId?: string) {
         }
       } catch (err) {
         console.error('Error fetching sync status:', err)
+        if (mounted) {
+          setQueueStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  counts: { ...prev.counts, failed: 0 },
+                  failedSummaries: [],
+                }
+              : null
+          )
+        }
       }
     }
 
@@ -132,5 +175,6 @@ export function useSyncStatus(userId?: string) {
     syncInProgress: isSyncing,
     extractionInProgress: isExtracting,
     isBusy: isSyncing || isExtracting,
+    refreshQueue,
   }
 }
