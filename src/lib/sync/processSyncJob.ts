@@ -510,7 +510,6 @@ export async function processSyncJob(payload: SyncJobPayload) {
               try {
                 const {
                   message,
-                  messageRef,
                   fromAddress,
                   subject,
                   toAddress,

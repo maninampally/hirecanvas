@@ -38,7 +38,6 @@ import {
   MdHandshake,
   MdStarRate,
   MdClose,
-  MdPeople,
   MdOutlineEmail,
   MdDescription,
   MdQuiz,
@@ -70,7 +69,15 @@ export default function DashboardPage() {
   const [isStoppingSync, setIsStoppingSync] = useState(false)
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
-  const [onboardingDismissed, setOnboardingDismissed] = useState(false)
+  const [onboardingDismissed, setOnboardingDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return window.localStorage.getItem('hc:dashboard_onboarding_dismissed') === 'true'
+    } catch {
+      return false
+    }
+  })
+  const [activityNowMs] = useState(() => Date.now())
 
   const toDateInput = (date: Date) => {
     const y = date.getFullYear()
@@ -108,15 +115,6 @@ export default function DashboardPage() {
   }
 
   const syncButtonLocked = isTriggeringSync || isBusy || syncRequested
-
-  useEffect(() => {
-    try {
-      const dismissed = window.localStorage.getItem('hc:dashboard_onboarding_dismissed')
-      if (dismissed === 'true') setOnboardingDismissed(true)
-    } catch {
-      // ignore localStorage read issues
-    }
-  }, [])
 
   useEffect(() => {
     if (!syncRequested) return
@@ -291,7 +289,7 @@ export default function DashboardPage() {
 
   const formatActivityDate = (value: string) => {
     const date = new Date(value)
-    const diffMs = date.getTime() - Date.now()
+    const diffMs = date.getTime() - activityNowMs
     const minute = 60 * 1000
     const hour = 60 * minute
     const day = 24 * hour

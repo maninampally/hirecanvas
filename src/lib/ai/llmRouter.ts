@@ -1,6 +1,6 @@
 import type IORedis from 'ioredis'
 import { runClaude } from '@/lib/ai/claude'
-import { ProviderError, type ProviderRequest } from '@/lib/ai/gemini'
+import type { ProviderRequest } from '@/lib/ai/gemini'
 import { runMemzent } from '@/lib/ai/memzent'
 import { runOpenAI } from '@/lib/ai/openai'
 import { getRedisClient } from '@/lib/redis'
