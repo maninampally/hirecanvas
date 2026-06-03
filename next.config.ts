@@ -5,7 +5,8 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: '/icon-192.png', destination: '/icon.png', permanent: false },
-      { source: '/icon-512.png', destination: '/apple-icon.png', permanent: false },
+      { source: '/icon-512.png', destination: '/icon.png', permanent: false },
+      { source: '/apple-icon.png', destination: '/icon.png', permanent: false },
     ]
   },
 };

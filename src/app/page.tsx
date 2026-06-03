@@ -56,8 +56,8 @@ export default async function Home() {
       {/* ── Header ── */}
       <header className="sticky top-0 z-50 glass border-b border-slate-200/40">
         <nav className="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
-          <Link href="/">
-            <LogoWordmark height={44} priority />
+          <Link href="/" className="inline-flex shrink-0">
+            <LogoWordmark height={72} priority />
           </Link>
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-500">
             <a href="#features" className="hover:text-teal-600 transition-colors">Features</a>

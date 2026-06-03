@@ -249,7 +249,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         className={`${collapsed ? 'lg:w-[72px]' : 'lg:w-64'} w-72 bg-gradient-to-b from-[#ecfeff] to-[#ccfbf1] border-r border-teal-100/70 flex flex-col transition-all duration-300 ease-in-out overflow-hidden fixed lg:static inset-y-0 left-0 z-50 lg:z-auto ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Logo */}
-        <div className="border-b border-teal-100/70 p-4">
+        <div className="border-b border-teal-100/70 p-4 min-h-[4.5rem] flex items-center">
           <SidebarLogo collapsed={collapsed} />
         </div>
 
