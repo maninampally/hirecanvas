@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { AUTH_PREVIEW_ACTIVITY, AUTH_PREVIEW_METRIC_LABELS } from '@/lib/constants'
-import { LogoMark } from '@/components/brand/Logo'
+import { LogoIcon } from '@/components/brand/Logo'
 export default function AuthLayout({
   children,
 }: {
@@ -27,11 +27,9 @@ export default function AuthLayout({
         <div className="absolute -bottom-20 -left-10 h-72 w-72 rounded-full bg-white/5" />
 
         <div className="relative z-10 mx-auto max-w-md text-center">
-          <Link href="/" className="mb-10 inline-flex">
-            <LogoMark
-              iconSize={36}
-              textClassName="text-xl text-white/95"
-            />
+          <Link href="/" className="mb-10 inline-flex items-center justify-center gap-3">
+            <LogoIcon size={44} priority />
+            <span className="text-2xl font-bold tracking-tight text-white">HireCanvas</span>
           </Link>
           <div className="mb-8 rounded-2xl border border-white/15 bg-white/10 p-6 backdrop-blur-md">
             <div className="mb-4 grid grid-cols-3 gap-2.5">

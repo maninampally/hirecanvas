@@ -2,7 +2,9 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
-const ICON_SRC = '/icon-512.png'
+/** Browser tab, PWA, and collapsed sidebar */
+const ICON_SRC = '/icon.png'
+/** Primary branding in header, sidebar, auth, landing */
 const WORDMARK_SRC = '/logo-wordmark.png'
 const WORDMARK_ASPECT = 1024 / 572
 
@@ -49,32 +51,33 @@ export function LogoWordmark({ height = 40, className, priority }: LogoWordmarkP
 
 type LogoMarkProps = {
   iconSize?: number
+  /** When true, shows logo-wordmark.png; when false, icon only */
   showText?: boolean
+  wordmarkHeight?: number
   textClassName?: string
   className?: string
   priority?: boolean
 }
 
+/** Primary logo: wordmark when expanded, icon-only when collapsed */
 export function LogoMark({
   iconSize = 36,
   showText = true,
+  wordmarkHeight = 40,
   textClassName,
   className,
   priority,
 }: LogoMarkProps) {
+  if (showText) {
+    return (
+      <div className={cn('flex items-center min-w-0', className)}>
+        <LogoWordmark height={wordmarkHeight} className={textClassName} priority={priority} />
+      </div>
+    )
+  }
   return (
-    <div className={cn('flex items-center gap-2.5 min-w-0', className)}>
+    <div className={cn('flex items-center min-w-0', className)}>
       <LogoIcon size={iconSize} priority={priority} />
-      {showText && (
-        <span
-          className={cn(
-            'truncate text-base font-bold tracking-tight text-slate-800',
-            textClassName,
-          )}
-        >
-          HireCanvas
-        </span>
-      )}
     </div>
   )
 }
@@ -105,7 +108,11 @@ type SidebarLogoProps = {
 export function SidebarLogo({ collapsed = false, href = '/dashboard', className }: SidebarLogoProps) {
   return (
     <LogoLink href={href} className={className}>
-      <LogoMark iconSize={36} showText={!collapsed} />
+      {collapsed ? (
+        <LogoIcon size={40} priority />
+      ) : (
+        <LogoWordmark height={48} priority />
+      )}
     </LogoLink>
   )
 }

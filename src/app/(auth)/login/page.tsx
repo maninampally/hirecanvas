@@ -66,8 +66,8 @@ function LoginPageContent() {
 
   return (
     <div className="animate-slide-up flex flex-col items-center">
-      <Link href="/" className="mb-8 inline-flex">
-        <LogoWordmark height={40} priority />
+      <Link href="/" className="mb-10 inline-flex">
+        <LogoWordmark height={72} priority />
       </Link>
 
       <Card className="w-full shadow-teal-md border-slate-200/60 rounded-2xl">
